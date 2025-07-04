@@ -1,0 +1,3 @@
+[submodule "inspire_hand_ws/unitree_sdk2_python"]
+	path = inspire_hand_ws/unitree_sdk2_python
+	url = https://github.com/unitreerobotics/unitree_sdk2_python.git
