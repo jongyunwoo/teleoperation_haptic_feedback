@@ -8,7 +8,7 @@ import pyrealsense2 as rs
 
 
 class RealSenseCamera(object):
-    def __init__(self, img_shape, fps, serial_number=True, enable_depth=False) -> None:
+    def __init__(self, img_shape, fps, serial_number=True, enable_depth=True) -> None:
         """
         img_shape: [height, width]
         serial_number: serial number
@@ -239,6 +239,7 @@ class ImageServer:
         try:
             while True:
                 head_frames = []
+                head_frames_depth = []
                 for cam in self.head_cameras:
                     if self.head_camera_type == 'opencv':
                         color_image = cam.get_frame()
@@ -246,14 +247,16 @@ class ImageServer:
                             print("[Image Server] Head camera frame read is error.")
                             break
                     elif self.head_camera_type == 'realsense':
-                        color_image, depth_iamge = cam.get_frame()
+                        color_image, depth_image = cam.get_frame()
                         if color_image is None:
                             print("[Image Server] Head camera frame read is error.")
                             break
                     head_frames.append(color_image)
+                    head_frames_depth.append(depth_image)
                 if len(head_frames) != len(self.head_cameras):
                     break
                 head_color = cv2.hconcat(head_frames)
+                head_depth = cv2.hconcat(head_frames_depth)
                 
                 if self.wrist_cameras:
                     wrist_frames = []
@@ -264,7 +267,7 @@ class ImageServer:
                                 print("[Image Server] Wrist camera frame read is error.")
                                 break
                         elif self.wrist_camera_type == 'realsense':
-                            color_image, depth_iamge = cam.get_frame()
+                            color_image, depth_image = cam.get_frame()
                             if color_image is None:
                                 print("[Image Server] Wrist camera frame read is error.")
                                 break
@@ -280,18 +283,23 @@ class ImageServer:
                 if not ret:
                     print("[Image Server] Frame imencode is failed.")
                     continue
-
                 jpg_bytes = buffer.tobytes()
+                
+                ret_d, depth_buffer = cv2.imencode('.png', head_depth)
+                if not ret_d:
+                    print("[Image Server] Depth Frames imencode is failed.")
+                    continue
+                png_bytes = depth_buffer.tobytes()
 
                 if self.Unit_Test:
                     timestamp = time.time()
                     frame_id = self.frame_count
                     header = struct.pack('dI', timestamp, frame_id)  # 8-byte double, 4-byte unsigned int
-                    message = header + jpg_bytes
+                    message = [header, jpg_bytes, png_bytes]
                 else:
-                    message = jpg_bytes
+                    message = [jpg_bytes, png_bytes]
 
-                self.socket.send(message)
+                self.socket.send_multipart(message)
 
                 if self.Unit_Test:
                     current_time = time.time()

@@ -337,12 +337,12 @@ if __name__ == '__main__':
                             },                        
                             "left_hand": {                                                                    
                                 "qpos":   left_hand_state,   
-                                "qvel":   [],                           
+                                "qvel":   [],   # 계산 필요                     
                                 "torque": left_hand_force_state,                          
                             }, 
                             "right_hand": {                                                                    
                                 "qpos":   right_hand_state, 
-                                "qvel":   [],                           
+                                "qvel":   [],   #계산 필요                        
                                 "torque": right_hand_force_state,  
                             }, 
                             

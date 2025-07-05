@@ -133,7 +133,7 @@ class ImageClient:
         try:
             while self.running:
                 # Receive message
-                message = self._socket.recv()
+                message = self._socket.recv_mulitpart()
                 receive_time = time.time()
 
                 if self._enable_performance_eval:
@@ -148,14 +148,21 @@ class ImageClient:
                         continue
                 else:
                     # No header, entire message is image data
-                    jpg_bytes = message
+                    jpg_bytes, png_bytes = message
+                
                 # Decode image
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
+                np_depth_img = np.frombuffer(png_bytes, dtype=np.uint16)
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+                depth_image = cv2.imdecode(np_depth_img, cv2.IMREAD_UNCHANGED)
                 if current_image is None:
                     print("[Image Client] Failed to decode image.")
                     continue
-
+                
+                if depth_image is None:
+                    print("[Image Client] Failed to decode Depth image")
+                    continue
+                
                 if self.tv_enable_shm:
                     np.copyto(self.tv_img_array, np.array(current_image[:, :self.tv_img_shape[1]]))
                 
@@ -164,8 +171,11 @@ class ImageClient:
                 
                 if self._image_show:
                     height, width = current_image.shape[:2]
+                    d_height, d_width = depth_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
+                    resized_depth_image = cv2.resize(depth_image, (width // 2, height // 2))
                     cv2.imshow('Image Client Stream', resized_image)
+                    cv2.imshow('Depth Image Client Stream', resized_depth_image)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 
