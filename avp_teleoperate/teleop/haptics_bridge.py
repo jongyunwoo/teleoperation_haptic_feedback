@@ -73,7 +73,7 @@ def tactile_to_dotpoints(frame: np.ndarray,
     # scale = 100.0 / fmax
     dots = []
     for idx, (start, end) in enumerate(_SEGMENTS):
-        intensity = float(frame[start:end].max() * 100 / 4095)
+        intensity = int(frame[start:end].max() * 100 / 4095)
         if intensity < min_intensity:
             intensity = 0
         dots.append({"index": idx, "intensity": intensity})

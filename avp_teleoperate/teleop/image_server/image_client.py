@@ -5,7 +5,7 @@ import time
 import struct
 from collections import deque
 from multiprocessing import shared_memory
-
+MAX_DEPTH_MM = 4000.0
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None, wrist_img_shape = None, wrist_img_shm_name = None, 
                        image_show = False, server_address = "192.168.123.164", port = 5555, Unit_Test = False):
@@ -34,6 +34,7 @@ class ImageClient:
 
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
+        self.latest_depth = None
 
         self.tv_enable_shm = False
         if self.tv_img_shape is not None and tv_img_shm_name is not None:
@@ -133,7 +134,7 @@ class ImageClient:
         try:
             while self.running:
                 # Receive message
-                message = self._socket.recv_mulitpart()
+                message = self._socket.recv_multipart()
                 receive_time = time.time()
 
                 if self._enable_performance_eval:
@@ -152,9 +153,11 @@ class ImageClient:
                 
                 # Decode image
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
-                np_depth_img = np.frombuffer(png_bytes, dtype=np.uint16)
+                np_depth_img = np.frombuffer(png_bytes, dtype=np.uint8) if png_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
                 depth_image = cv2.imdecode(np_depth_img, cv2.IMREAD_UNCHANGED)
+
+                # print(depth_image.dtype)
                 if current_image is None:
                     print("[Image Client] Failed to decode image.")
                     continue
@@ -173,15 +176,25 @@ class ImageClient:
                     height, width = current_image.shape[:2]
                     d_height, d_width = depth_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
-                    resized_depth_image = cv2.resize(depth_image, (width // 2, height // 2))
+                    resized_depth_image = cv2.resize(depth_image, (d_width // 2, d_height // 2))
                     cv2.imshow('Image Client Stream', resized_image)
-                    cv2.imshow('Depth Image Client Stream', resized_depth_image)
+                    if depth_image is not None:
+                        depth_clipped = np.clip(depth_image.astype(np.float32), 0, MAX_DEPTH_MM)
+                        depth_scaled = (depth_clipped / MAX_DEPTH_MM * 255.0).astype(np.uint8)
+                        depth_color  = cv2.applyColorMap(depth_scaled, cv2.COLORMAP_JET)
+                        depth_color_resized = cv2.resize(depth_color, (d_width//2, d_height //2))
+
+                        cv2.imshow('Depth Image Client Stream (Color)', depth_color_resized)
+                    else:
+                        cv2.imshow('Depth Image Client Stream', resized_depth_image)
+                    self.latest_depth = depth_scaled.copy()
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 
                 if self._enable_performance_eval:
                     self._update_performance_metrics(timestamp, frame_id, receive_time)
                     self._print_performance_metrics(receive_time)
+
 
         except KeyboardInterrupt:
             print("Image client interrupted by user.")

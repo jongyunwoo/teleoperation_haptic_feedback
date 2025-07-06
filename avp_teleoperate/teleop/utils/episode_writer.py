@@ -123,7 +123,7 @@ class EpisodeWriter():
         print(f"==> New episode created: {self.episode_dir}")
         return True  # Return True if the episode is successfully created
         
-    def add_item(self, colors, depths=None, states=None, actions=None, tactiles=None, audios=None):
+    def add_item(self, colors, depths, states=None, actions=None, tactiles=None, audios=None):
         # Increment the item ID
         self.item_id += 1
         # Create the item data dictionary
@@ -174,10 +174,11 @@ class EpisodeWriter():
         # Save depths
         if depths:
             for idx_depth, (depth_key, depth) in enumerate(depths.items()):
-                depth_name = f'{str(idx).zfill(6)}_{depth_key}.jpg'
+                depth_name = f'{str(idx).zfill(6)}_{depth_key}.png'
                 if not cv2.imwrite(os.path.join(self.depth_dir, depth_name), depth):
                     print(f"Failed to save depth image.")
                 item_data['depths'][depth_key] = os.path.join('depths', depth_name)
+                
 
         # Save audios
         if audios:

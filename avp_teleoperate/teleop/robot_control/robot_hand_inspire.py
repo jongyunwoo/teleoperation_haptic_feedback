@@ -583,6 +583,9 @@ class Inspire_Controller:
                 left_speed_cmd_scaled  = np.clip(raw_left_speed,  0, 1) * 1000
                 right_speed_cmd_scaled = np.clip(raw_right_speed, 0, 1) * 1000
                 
+                left_speed_cmd_scaled  = left_speed_cmd_scaled.astype(int).tolist()
+                right_speed_cmd_scaled = right_speed_cmd_scaled.astype(int).tolist()
+                
                 
                 prev_left_angle_norm  = current_left_q_target_norm.copy()
                 prev_right_angle_norm = current_right_q_target_norm.copy()
@@ -597,13 +600,13 @@ class Inspire_Controller:
 
                 u_left  = Kp * err_left  + Kd * d_err_left
                 u_right = Kp * err_right + Kd * d_err_right
-
-                desired_force_left  = np.clip(u_left,  0, 1)
+                
+                desired_force_left  = np.clip(u_left,  0, 1) 
                 desired_force_right = np.clip(u_right, 0, 1)
 
                 # 5. 스케일:  0 ~ +3000   (Inspire force 범위)
-                left_force_cmd_scaled  = u_left  * 3000
-                right_force_cmd_scaled = u_right * 3000
+                left_force_cmd_scaled  = (u_left  * 3000).astype(int).tolist()
+                right_force_cmd_scaled = (u_right * 3000).astype(int).tolist()
 
                 # 6. 루프 끝에서 오차 갱신
                 prev_err_left  = err_left

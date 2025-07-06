@@ -42,6 +42,21 @@ class RealSenseCamera(object):
             assert self._device is not None
             depth_sensor = self._device.first_depth_sensor()
             self.g_depth_scale = depth_sensor.get_depth_scale()
+            # self.dec_filter  = rs.decimation_filter()
+
+            # self.spat_filter = rs.spatial_filter()
+            # # Spatial 필터 강도: 1–8 정도에서 실험
+            # self.spat_filter.set_option(rs.option.filter_magnitude, 2)
+
+            # self.temp_filter = rs.temporal_filter()
+            # # Temporal 필터 α (0.0–1.0): 높일수록 부드러움↑, 반응성↓
+            # self.temp_filter.set_option(rs.option.filter_smooth_alpha, 0.4)
+            # # Temporal 필터 Δ: 허용 오차 범위 (작게 → 더 민감)
+            # self.temp_filter.set_option(rs.option.filter_smooth_delta, 20)
+
+            # self.hole_filter = rs.hole_filling_filter()
+            # # Hole-filling 모드: 1 또는 2 (1: 주변 보간, 2: 더 적극적 보간)
+            # self.hole_filter.set_option(rs.option.holes_fill, 1)
 
         self.intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
 
@@ -52,6 +67,10 @@ class RealSenseCamera(object):
 
         if self.enable_depth:
             depth_frame = aligned_frames.get_depth_frame()
+            # depth_frame = self.dec_filter.process(depth_frame)
+            # depth_frame = self.spat_filter.process(depth_frame)
+            # depth_frame = self.temp_filter.process(depth_frame)
+            # depth_frame = self.hole_filter.process(depth_frame)
 
         if not color_frame:
             return None

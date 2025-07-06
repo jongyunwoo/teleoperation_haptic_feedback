@@ -316,11 +316,14 @@ if __name__ == '__main__':
                         if BINOCULAR:
                             colors[f"color_{0}"] = current_tv_image[:, :tv_img_shape[1]//2]
                             colors[f"color_{1}"] = current_tv_image[:, tv_img_shape[1]//2:]
+                            depths[f"depth_{0}"] = img_client.latest_depth[:, :tv_img_shape[1]//2]
+                            depths[f"depth_{1}"] = img_client.latest_depth[:, tv_img_shape[1]//2:]
                             if WRIST:
                                 colors[f"color_{2}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{3}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
                         else:
                             colors[f"color_{0}"] = current_tv_image
+                            depths[f"depth_{0}"] = img_client.latest_depth
                             if WRIST:
                                 colors[f"color_{1}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{2}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
