@@ -7,7 +7,7 @@ import time
 from .rerun_visualizer import RerunLogger
 from queue import Queue, Empty
 from threading import Thread
-
+MAX_DEPTH_MM = 4000.0
 class EpisodeWriter():
     def __init__(self, task_dir, frequency=30, image_size=[640, 480], rerun_log = True):
         """
@@ -178,6 +178,11 @@ class EpisodeWriter():
                 if not cv2.imwrite(os.path.join(self.depth_dir, depth_name), depth):
                     print(f"Failed to save depth image.")
                 item_data['depths'][depth_key] = os.path.join('depths', depth_name)
+                depth_clipped = np.clip(depth.astype(np.float32), 0, MAX_DEPTH_MM)
+                depth_8u = (depth_clipped / MAX_DEPTH_MM * 255).astype(np.uint8)
+                preview = cv2.applyColorMap(depth_8u, cv2.COLORMAP_JET)        # 색상 맵
+                prev_name = f'{idx:06d}_{depth_key}_vis.jpg'
+                cv2.imwrite(os.path.join(self.depth_dir, prev_name), preview)
                 
 
         # Save audios

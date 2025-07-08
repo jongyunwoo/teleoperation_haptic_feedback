@@ -142,10 +142,12 @@ if __name__ == '__main__':
         tv_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1] * 2, 3)
     else:
         tv_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1], 3)
-
+        tv_depth_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1])
     tv_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(tv_img_shape) * np.uint8().itemsize)
     tv_img_array = np.ndarray(tv_img_shape, dtype = np.uint8, buffer = tv_img_shm.buf)
-
+    tv_depth_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(tv_depth_img_shape) * np.uint16().itemsize)
+    tv_depth_img_array = np.ndarray(tv_depth_img_shape, dtype = np.uint16, buffer = tv_depth_img_shm.buf)
+    
     if WRIST:
         wrist_img_shape = (img_config['wrist_camera_image_shape'][0], img_config['wrist_camera_image_shape'][1] * 2, 3)
         wrist_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(wrist_img_shape) * np.uint8().itemsize)
@@ -153,7 +155,8 @@ if __name__ == '__main__':
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name, 
                                  wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name)
     else:
-        img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name)
+        img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,
+                                 tv_depth_img_shape = tv_depth_img_shape, tv_depth_img_shm_name = tv_depth_img_shm.name)
 
     image_receive_thread = threading.Thread(target = img_client.receive_process, daemon = True)
     image_receive_thread.daemon = True
@@ -210,8 +213,8 @@ if __name__ == '__main__':
         #                   args=(dual_hand_touch_array, 30),
         #                   daemon=True)
         # t_dual.start()
-        init_player()  # 별도 IP 필요 없으면 인자 없이
-        start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
+        # init_player()  # 별도 IP 필요 없으면 인자 없이
+        # start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
     else:
         pass
     
@@ -297,6 +300,7 @@ if __name__ == '__main__':
                         pass
                     # head image
                     current_tv_image = tv_img_array.copy()
+                    depth_tv_image = tv_depth_img_array.copy()
                     # wrist image
                     if WRIST:
                         current_wrist_image = wrist_img_array.copy()
@@ -316,14 +320,14 @@ if __name__ == '__main__':
                         if BINOCULAR:
                             colors[f"color_{0}"] = current_tv_image[:, :tv_img_shape[1]//2]
                             colors[f"color_{1}"] = current_tv_image[:, tv_img_shape[1]//2:]
-                            depths[f"depth_{0}"] = img_client.latest_depth[:, :tv_img_shape[1]//2]
-                            depths[f"depth_{1}"] = img_client.latest_depth[:, tv_img_shape[1]//2:]
+                            depths[f"depth_{0}"] = depth_tv_image[:, :tv_depth_img_shape[1]//2]
+                            depths[f"depth_{1}"] = depth_tv_image[:, tv_depth_img_shape[1]//2:]
                             if WRIST:
                                 colors[f"color_{2}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{3}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
                         else:
                             colors[f"color_{0}"] = current_tv_image
-                            depths[f"depth_{0}"] = img_client.latest_depth
+                            depths[f"depth_{0}"] = depth_tv_image
                             if WRIST:
                                 colors[f"color_{1}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{2}"] = current_wrist_image[:, wrist_img_shape[1]//2:]

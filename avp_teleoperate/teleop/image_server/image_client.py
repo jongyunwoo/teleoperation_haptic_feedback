@@ -7,8 +7,9 @@ from collections import deque
 from multiprocessing import shared_memory
 MAX_DEPTH_MM = 4000.0
 class ImageClient:
-    def __init__(self, tv_img_shape = None, tv_img_shm_name = None, wrist_img_shape = None, wrist_img_shm_name = None, 
-                       image_show = False, server_address = "192.168.123.164", port = 5555, Unit_Test = False):
+    def __init__(self, tv_img_shape = None, tv_img_shm_name = None, tv_depth_img_shape = None, tv_depth_img_shm_name=None,
+                 wrist_img_shape = None, wrist_img_shm_name = None, 
+                image_show = False, server_address = "192.168.123.164", port = 5555, Unit_Test = False):
         """
         tv_img_shape: User's expected head camera resolution shape (H, W, C). It should match the output of the image service terminal.
 
@@ -34,13 +35,18 @@ class ImageClient:
 
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
-        self.latest_depth = None
+        self.tv_depth_img_shape = tv_depth_img_shape
 
         self.tv_enable_shm = False
         if self.tv_img_shape is not None and tv_img_shm_name is not None:
             self.tv_image_shm = shared_memory.SharedMemory(name=tv_img_shm_name)
             self.tv_img_array = np.ndarray(tv_img_shape, dtype = np.uint8, buffer = self.tv_image_shm.buf)
             self.tv_enable_shm = True
+        self.tv_depth_enable_shm = False
+        if self.tv_depth_img_shape is not None and tv_depth_img_shm_name is not None:
+            self.tv_depth_image_shm = shared_memory.SharedMemory(name=tv_depth_img_shm_name)    
+            self.tv_depth_img_array = np.ndarray(tv_depth_img_shape, dtype = np.uint16, buffer = self.tv_depth_image_shm.buf)
+            self.tv_depth_enable_shm = True
         
         self.wrist_enable_shm = False
         if self.wrist_img_shape is not None and wrist_img_shm_name is not None:
@@ -171,7 +177,9 @@ class ImageClient:
                 
                 if self.wrist_enable_shm:
                     np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
-                
+                if self.tv_depth_enable_shm:
+                    np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
+                    
                 if self._image_show:
                     height, width = current_image.shape[:2]
                     d_height, d_width = depth_image.shape[:2]
@@ -187,7 +195,6 @@ class ImageClient:
                         cv2.imshow('Depth Image Client Stream (Color)', depth_color_resized)
                     else:
                         cv2.imshow('Depth Image Client Stream', resized_depth_image)
-                    self.latest_depth = depth_scaled.copy()
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 
