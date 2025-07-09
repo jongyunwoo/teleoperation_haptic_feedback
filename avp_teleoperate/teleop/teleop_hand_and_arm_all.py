@@ -40,10 +40,12 @@ from teleop.robot_control.robot_hand_unitree import Dex3_1_Controller, Gripper_C
 from teleop.robot_control.robot_hand_inspire import Inspire_Controller
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
-from teleop.haptics_bridge import init_player, start_haptics_stream
+from hapticfeedback.haptics_bridge import init_player, start_haptics_stream #tactile feedback
+from hapticfeedback.caldist import caldist #distance 계산 
+from hapticfeedback.playsound import warn_beep, grap_sound #sound 출력
+
 
 num_tactile_per_hand = 1062 # 추가
-
 
         
 if __name__ == '__main__':
@@ -107,7 +109,15 @@ if __name__ == '__main__':
 
     # television: obtain hand pose data from the XR device and transmit the robot's head camera image to the XR device.
     tv_wrapper = TeleVisionWrapper(BINOCULAR, tv_img_shape, tv_img_shm.name)
-
+    
+    
+    #------------sound feedback-----------#
+    rawnp_img = tv_img_array.copy()
+    color_img = cv2.cvtColor(rawnp_img, cv2.COLOR_RGB2BGR)
+    depthnp_img = tv_depth_img_array.copy()
+    obj_rbhand_dis = caldist(color_img, depthnp_img, 0.001)
+    #------------sound feedback-----------#
+    
     # arm
     if args.arm == 'G1_29':
         arm_ctrl = G1_29_ArmController()
@@ -149,9 +159,14 @@ if __name__ == '__main__':
                                        dual_hand_data_lock, dual_hand_state_array, 
                                        dual_hand_action_array, dual_hand_touch_array,
                                        dual_hand_force_array)
-
-        init_player()  # 별도 IP 필요 없으면 인자 없이
+        
+        
+        #-------------------tactile feedback--------------------#
+        init_player() 
         start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
+        #-------------------tactile feedback--------------------#
+    
+    
     else:
         pass
     
@@ -197,7 +212,12 @@ if __name__ == '__main__':
                             recording = False
                     else:
                         recorder.save_episode()
-
+                
+                
+                # --------------- sound feedback ------------------ #
+                warn_beep(obj_rbhand_dis)
+                #--------------- sound feedback-----------------------#
+                
                 # record data
                 if args.record:
                     # dex hand or gripper
@@ -251,6 +271,15 @@ if __name__ == '__main__':
                     right_arm_action = sol_q[-7:]
                     right_arm_torque_action = sol_tauff[-7:]
 
+
+                    #----------sound feedback--------#
+                    l_min, l_max, r_min, r_max = 0
+                    left_fingers_touch = np.mean(left_hand_touch[9:105, 194:290, 379:475, 564:660, 749:845])
+                    right_fingers_touch = np.mean(right_hand_touch[9:105, 194:290, 379:475, 564:660, 749:845])
+                    grap_sound(left_fingers_touch, right_fingers_touch, l_min, l_max, r_min, r_max)
+                    #----------sound feedback--------#
+                    
+                
                     if recording:
                         colors = {}
                         depths = {}

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # ① 열고 싶은 .npy 파일 경로
-npy_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/episode_0033/tactiles/000202_left_tactile.npy'
+npy_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/data/episode_0001/tactiles/000280_left_tactile.npy'
 # csv_path = '/home/scilab/Documents/g1_tele/episode_0033/tactiles/000055_left_tactile.csv'
 if not os.path.exists(npy_path):
     raise FileNotFoundError(f"{npy_path} 경로가 맞는지 확인하세요!")
@@ -24,13 +24,13 @@ print("max   :", data.max())
 print("first 10 values :", data[:10])
 print("len :", len(data))
 
-print("==== Norm 기본 정보 ====")
-print("shape :", data_norm.shape)
-print("dtype :", data_norm.dtype)
-print("min   :", data_norm.min())
-print("max   :", data_norm.max())
-print("first 10 values :", data_norm[:])
-print("len :", len(data_norm))
+# print("==== Norm 기본 정보 ====")
+# print("shape :", data_norm.shape)
+# print("dtype :", data_norm.dtype)
+# print("min   :", data_norm.min())
+# print("max   :", data_norm.max())
+# print("first 10 values :", data_norm[:])
+# print("len :", len(data_norm))
 
 stats = {
     'shape':    [data_norm.shape],
