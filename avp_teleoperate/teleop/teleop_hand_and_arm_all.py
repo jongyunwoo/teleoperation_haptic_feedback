@@ -26,9 +26,9 @@ import argparse
 import cv2
 from multiprocessing import shared_memory, Array, Lock
 import threading
-
 import os 
 import sys
+from autodistill_yolov8 import YOLOv8
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -46,7 +46,7 @@ from hapticfeedback.playsound import warn_beep, grap_sound #sound 출력
 
 
 num_tactile_per_hand = 1062 # 추가
-
+target_model = YOLOv8("/home/scilab/Documents/teleoperation/rbhandseg/best.pt")
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     rawnp_img = tv_img_array.copy()
     color_img = cv2.cvtColor(rawnp_img, cv2.COLOR_RGB2BGR)
     depthnp_img = tv_depth_img_array.copy()
-    obj_rbhand_dis = caldist(color_img, depthnp_img, 0.001)
+    obj_rbhand_dis = caldist(color_img, depthnp_img, 0.001, target_model)
     #------------sound feedback-----------#
     
     # arm
