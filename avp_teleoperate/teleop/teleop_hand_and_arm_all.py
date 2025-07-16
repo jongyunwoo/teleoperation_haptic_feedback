@@ -18,8 +18,6 @@ from time import sleep
 from bhaptics import better_haptic_player as player
 from bhaptics.better_haptic_player import BhapticsPosition
 
-
-
 import numpy as np
 import time
 import argparse
@@ -29,6 +27,7 @@ import threading
 import os 
 import sys
 from autodistill_yolov8 import YOLOv8
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -47,6 +46,7 @@ from hapticfeedback.playsound import warn_beep, grap_sound #sound 출력
 
 num_tactile_per_hand = 1062 # 추가
 target_model = YOLOv8("/home/scilab/Documents/teleoperation/rbhandseg/best.pt")
+
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -160,13 +160,6 @@ if __name__ == '__main__':
                                        dual_hand_action_array, dual_hand_touch_array,
                                        dual_hand_force_array)
         
-        
-        #-------------------tactile feedback--------------------#
-        init_player() 
-        start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
-        #-------------------tactile feedback--------------------#
-    
-    
     else:
         pass
     
@@ -213,6 +206,11 @@ if __name__ == '__main__':
                     else:
                         recorder.save_episode()
                 
+                #-------------------tactile feedback--------------------#
+                init_player() 
+                start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
+                #-------------------tactile feedback--------------------#
+                
                 
                 # --------------- sound feedback ------------------ #
                 warn_beep(obj_rbhand_dis)
@@ -251,10 +249,11 @@ if __name__ == '__main__':
                             left_hand_touch = dual_hand_touch_array[:1062]
                             right_hand_touch = dual_hand_touch_array[-1062:]
 
-
                     else:
                         print("No dexterous hand set.")
                         pass
+                    
+                    
                     # head image
                     current_tv_image = tv_img_array.copy()
                     depth_tv_image = tv_depth_img_array.copy()

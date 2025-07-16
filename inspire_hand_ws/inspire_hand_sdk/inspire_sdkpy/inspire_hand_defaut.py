@@ -104,6 +104,7 @@ def get_inspire_hand_ctrl():
         force_set=[0 for _ in range(6)],      # 小拇指指腹触觉数据
         speed_set=[0 for _ in range(6)],        # 无名指指端触觉数据
         mode=0b0000
+        
     ) 
 
 defaut_ip='192.168.11.210'

@@ -12,7 +12,7 @@ import numpy as np
 import threading
 import time
 from multiprocessing import Process, Array, Lock # Removed shared_memory as Array is used
-
+# from hapticfeedback.kalmanfilter import KalmanFilter1D
 inspire_tip_indices = [4, 9, 14, 19, 24] # Assuming this remains relevant for hand_retargeting
 Inspire_Num_Motors = 6 # Number of motors per hand
 
@@ -110,7 +110,6 @@ class Inspire_Controller:
         self.subscribe_state_thread = threading.Thread(target=self._subscribe_hand_state_loop)
         self.subscribe_state_thread.daemon = True
         self.subscribe_state_thread.start()
-    
 
         # Wait for initial DDS messages (optional, but good for ensuring connection)
         wait_count = 0
@@ -143,29 +142,6 @@ class Inspire_Controller:
             self._touch_offsets[name] = (start, start + length)
             start += length                           # 다음 필드의 시작 인덱스
         
-    # 추가
-    # def _subscribe_hand_touch_loop(self):
-    #     print("[Inspire_Controller] Subscribe thread2 started.")
-    #     local_debug_counter = 0
-    #     while True:
-    #         # Left
-    #         left_touch_msg = self.LeftTouch_subscriber.Read()
-    #         if left_touch_msg is not None:
-    #             if hasattr(left_touch_msg, 'fingerone_tip_touch') and len(left_touch_msg.fingerone_tip_touch) == Inspire_Num_Tactile:
-    #                 with self.left_tactile_array.get_lock():
-    #                     for i in range(Inspire_Num_Tactile):
-    #                         self.left_tactile_array[i] = left_touch_msg.fingerone_tip_touch[i]
-                            
-    #         # Right
-    #         right_touch_msg = self.RightTouch_subscriber.Read()
-    #         if right_touch_msg is not None:
-    #             if hasattr(right_touch_msg, 'fingerone_tip_touch') and len(right_touch_msg.fingerone_tip_touch) == Inspire_Num_Tactile:
-    #                 with self.right_tactile_array.get_lock():
-    #                     for i in range(Inspire_Num_Tactile):
-    #                         self.right_tactile_array[i] = right_touch_msg.fingerone_tip_touch[i]
-                            
-    #         local_debug_counter +=1
-    #         time.sleep(0.002)
 
     def _subscribe_hand_state_loop(self):
         print("[Inspire_Controller] Subscribe thread started.")
@@ -207,23 +183,7 @@ class Inspire_Controller:
             # Left
             left_touch_msg = self.LeftTouch_subscriber.Read()
             if left_touch_msg is not None:
-                # start_idx = 0
-                # for key, value in touch_dict.items():
-                #     if hasattr(left_touch_msg, key) and len(getattr(left_touch_msg, key)) == value:
-                #         tactile_values = getattr(left_touch_msg, key)
-                #         # with self.right_hand_state_array.get_lock():
-                #         #     self.dual_hand_touch_array[:inspire_num_tactile] = left_touch_msg.tactile
-                #         with self.left_tactile_array.get_lock():
-                #             for i in range(value):
-                #                 self.left_tactile_array[start_idx+i] = left_touch_msg.tactile_values[i]
-                                
-                #             # print("Dehug Tactile Sensor Value For finger_tip_Left" )
-                #             # print(type(self.left_tactile_array))
-                #             # print(len(list(self.left_tactile_array)))
-                #             # print("MAX value:", max(list(self.left_tactile_array)))
-                                #             # print("MIN value:", min(list(self.left_tactile_array)))
-                                #             # print("#"*50)
-
+                
                 if hasattr(left_touch_msg, 'fingerone_tip_touch') and len(left_touch_msg.fingerone_tip_touch) == 9:
                     with self.left_tactile_array.get_lock():
                         for i in range(9):
@@ -315,36 +275,11 @@ class Inspire_Controller:
                         # print("MAX value:", max(list(self.left_tactile_array)))
                         # print("MIN value:", min(list(self.left_tactile_array)))
                         # print("#"*50)
-
-                            
+                
             # Right
             right_touch_msg = self.RightTouch_subscriber.Read()
             if right_touch_msg is not None:
-                # start_idx = 0
-                # for key, value in touch_dict.items():
-                #     if hasattr(right_touch_msg, key) and len(getattr(right_touch_msg, key)) == value:
-                #         tactile_values = getattr(right_touch_msg, key)
-                #         # with self.right_hand_state_array.get_lock():
-                #         #     self.dual_hand_touch_array[:inspire_num_tactile] = left_touch_msg.tactile
-                #         with self.right_tactile_array.get_lock():
-                #             for i in range(value):
-                #                 self.right_tactile_array[start_idx+i] = right_touch_msg.tactile_values[i]
-                
-                # if hasattr(right_touch_msg, 'fingerone_tip_touch') and len(right_touch_msg.fingerone_tip_touch) == Inspire_Num_Tactile:
-                #     # tactile_values = getattr(left_touch_msg, key)
-                #     # with self.right_hand_state_array.get_lock():
-                #         # self.dual_hand_touch_array[:inspire_num_tactile] = left_touch_msg.tactile
-                #     with self.right_tactile_array.get_lock():
-                #         for i in range(Inspire_Num_Tactile):
-                #             self.right_tactile_array[i] = right_touch_msg.fingerone_tip_touch[i]
-                            
-                                
-                            # print("Dehug Tactile Sensor Value For finger_tip_Left" )
-                            # print(type(self.left_tactile_array))
-                            # print(len(list(self.left_tactile_array)))
-                            # print("MAX value:", max(list(self.left_tactile_array)))
-                            # print("MIN value:", min(list(self.left_tactile_array)))
-                            # print("#"*50)
+
                             
                 if hasattr(right_touch_msg, 'fingerone_tip_touch') and len(right_touch_msg.fingerone_tip_touch) == 9:
                     with self.right_tactile_array.get_lock():
@@ -430,7 +365,7 @@ class Inspire_Controller:
                     with self.right_tactile_array.get_lock():
                         for i in range(112):
                             self.right_tactile_array[950 + i] = right_touch_msg.palm_touch[i] 
-
+            
             local_debug_counter +=1
             time.sleep(0.002)
 

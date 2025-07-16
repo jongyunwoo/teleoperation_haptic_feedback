@@ -21,14 +21,15 @@ from bhaptics.better_haptic_player import BhapticsPosition
 
 
 import numpy as np
+from collections import deque
 import time
 import argparse
 import cv2
 from multiprocessing import shared_memory, Array, Lock
 import threading
-
 import os 
 import sys
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -40,10 +41,9 @@ from teleop.robot_control.robot_hand_unitree import Dex3_1_Controller, Gripper_C
 from teleop.robot_control.robot_hand_inspire import Inspire_Controller
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
-from teleop.haptics_bridge import init_player, start_haptics_stream
+from avp_teleoperate.hapticfeedback.haptics_bridge import init_player, start_haptics_stream
 
 num_tactile_per_hand = 1062 # 추가
-
 
         
 if __name__ == '__main__':
@@ -151,7 +151,7 @@ if __name__ == '__main__':
                                        dual_hand_force_array)
 
         init_player()  # 별도 IP 필요 없으면 인자 없이
-        start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
+
     else:
         pass
     
@@ -165,7 +165,7 @@ if __name__ == '__main__':
             arm_ctrl.speed_gradual_max()
 
             running = True
-            while running:
+            while running: 
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
 
@@ -197,6 +197,10 @@ if __name__ == '__main__':
                             recording = False
                     else:
                         recorder.save_episode()
+                        
+                
+                start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)    
+
 
                 # record data
                 if args.record:

@@ -129,30 +129,30 @@ def start_haptics_stream(shared_array, hz: int = 30,
 # ──────────────────────────────────────────────────────
 # 4. 단독 실행 테스트 (python haptics_bridge.py 로 실행)
 # ──────────────────────────────────────────────────────
-# if __name__ == "__main__":
-#     import multiprocessing as mp
+if __name__ == "__main__":
+    import multiprocessing as mp
 
-#     # (A) 가짜 센서 데이터 → 삼각파로 주기적 진동 확인
-#     arr = mp.Array('d', 1062 * 2)
-#     buf = np.frombuffer(arr.get_obj(), dtype=np.float64)
+    # (A) 가짜 센서 데이터 → 삼각파로 주기적 진동 확인
+    arr = mp.Array('d', 1062 * 2)
+    buf = np.frombuffer(arr.get_obj(), dtype=np.float64)
 
-#     def fake_sensor():
-#         t = 0.0
-#         while True:
-#             val = (np.sin(t) * 0.5 + 0.5) * 4095
-#             buf[:] = val
-#             t += 0.1
-#             time.sleep(0.05)
+    def fake_sensor():
+        t = 0.0
+        while True:
+            val = (np.sin(t) * 0.5 + 0.5) * 4095
+            buf[:] = val
+            t += 0.1
+            time.sleep(0.05)
 
-#     mp.Process(target=fake_sensor, daemon=True).start()
+    mp.Process(target=fake_sensor, daemon=True).start()
 
-#     # (B) Player 연결 + 스트리머
-#     init_player()
-#     start_haptics_stream(arr, hz=30, duration_ms=100)
+    # (B) Player 연결 + 스트리머
+    init_player()
+    start_haptics_stream(arr, hz=30, duration_ms=100)
 
-#     print("Press Ctrl-C to quit.")
-#     try:
-#         while True:
-#             time.sleep(1)
-#     except KeyboardInterrupt:
-#         pass
+    print("Press Ctrl-C to quit.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass

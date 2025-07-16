@@ -12,6 +12,8 @@ __MACOSX/
 *.svo
 *.png
 *.zip
+*.npy
+*.mp4
 !video_cover.jpg
 !head_camera_mount_install.png
 !head_camera_mount.png

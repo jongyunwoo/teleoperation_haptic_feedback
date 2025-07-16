@@ -42,6 +42,10 @@ from teleop.utils.episode_writer import EpisodeWriter
 
 num_tactile_per_hand = 1062 # 추가
 
+# 여러 번 측정하여 평균을 내기 위한 설정
+num_samples = 5  # 평균을 내기 위한 측정 횟수
+left_readings = []
+right_readings = []
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -146,15 +150,7 @@ if __name__ == '__main__':
                                        dual_hand_data_lock, dual_hand_state_array, 
                                        dual_hand_action_array, dual_hand_touch_array,
                                        dual_hand_force_array)
-        #─── bHaptics 실시간 스트리밍 스레드 시작 ────────────────────#
-        # initialize_haptics()
-        # # B) 한 스레드 방식
-        # t_dual = threading.Thread(target=haptics_dual_streamer,
-        #                   args=(dual_hand_touch_array, 30),
-        #                   daemon=True)
-        # t_dual.start()
-        # init_player()  # 별도 IP 필요 없으면 인자 없이
-        # start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
+
     else:
         pass
     
@@ -163,6 +159,18 @@ if __name__ == '__main__':
         recording = False
         
     try:
+        calibration_input = input("Calibaration start (enter 'c' to start tactile calibration):\n")
+        if calibration_input.lower() == 'c':
+            for i in range(num_samples):
+                with dual_hand_data_lock:
+                    left_readings.append(np.array(dual_hand_touch_array[:1062]))
+                    right_readings.append(np.array(dual_hand_touch_array[-1062:]))
+            left_baseline = max(left_readings, axis = 0)
+            right_baseline = max(right_readings, axis = 0)
+            
+            THREADHOLD = 50
+            print('Success calibration!')
+        
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
         if user_input.lower() == 'r':
             arm_ctrl.speed_gradual_max()
@@ -233,8 +241,14 @@ if __name__ == '__main__':
                             #추가
                             left_hand_touch = dual_hand_touch_array[:1062]
                             right_hand_touch = dual_hand_touch_array[-1062:]
-
-
+                            
+                            calibration_left_hand_touch = left_hand_touch - left_baseline
+                            calibration_right_hand_touch = right_hand_touch - right_baseline
+                            calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
+                            calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)
+                            
+                            left_hand_touch = calibrated_left_hand_touch
+                            right_hand_touch = calibrated_right_hand_touch
                     else:
                         print("No dexterous hand set.")
                         pass
