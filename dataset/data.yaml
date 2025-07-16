@@ -1,8 +1,0 @@
-names:
-- left robot hand
-- right robot hand
-- left robot arm
-- right robot arm
-nc: 4
-train: /home/scilab/Documents/teleoperation/dataset/train/images
-val: /home/scilab/Documents/teleoperation/dataset/valid/images
