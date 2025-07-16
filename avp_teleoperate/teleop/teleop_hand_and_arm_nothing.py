@@ -20,6 +20,7 @@ from bhaptics.better_haptic_player import BhapticsPosition
 
 import cv2
 import numpy as np
+import pandas as pd
 import time
 import argparse
 import cv2
@@ -46,6 +47,9 @@ num_tactile_per_hand = 1062 # 추가
 num_samples = 5  # 평균을 내기 위한 측정 횟수
 left_readings = []
 right_readings = []
+THREADHOLD = 50
+CalibrationDone = False
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -150,7 +154,6 @@ if __name__ == '__main__':
                                        dual_hand_data_lock, dual_hand_state_array, 
                                        dual_hand_action_array, dual_hand_touch_array,
                                        dual_hand_force_array)
-
     else:
         pass
     
@@ -159,27 +162,41 @@ if __name__ == '__main__':
         recording = False
         
     try:
-        calibration_input = input("Calibaration start (enter 'c' to start tactile calibration):\n")
-        if calibration_input.lower() == 'c':
-            for i in range(num_samples):
-                with dual_hand_data_lock:
-                    left_readings.append(np.array(dual_hand_touch_array[:1062]))
-                    right_readings.append(np.array(dual_hand_touch_array[-1062:]))
-            left_baseline = max(left_readings, axis = 0)
-            right_baseline = max(right_readings, axis = 0)
-            
-            THREADHOLD = 50
-            print('Success calibration!')
-        
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
         if user_input.lower() == 'r':
             arm_ctrl.speed_gradual_max()
 
             running = True
             while running:
+
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
+                
+                #========================Tactile data calibration=================#
+                if not CalibrationDone: 
+                    for i in range(num_samples):
+                        with dual_hand_data_lock:
+                            left_readings.append(np.array(dual_hand_touch_array[:1062]))
+                            right_readings.append(np.array(dual_hand_touch_array[-1062:]))
+                        # print(left_readings, right_readings)
+                        left_baseline = np.max(left_readings, axis=0)
+                        right_baseline = np.max(right_readings, axis = 0)
+                        print('Success calibration!', left_baseline, right_baseline)
+                        # df = pd.DataFrame({
+                        # "left_baseline":  left_baseline,
+                        # "right_baseline": right_baseline
+                        # })
+                        # df_reading = pd.DataFrame({
+                        #     "left_readings": left_readings,
+                        #     "right_readings": right_readings
+                        # })
+    
+                        # df.to_csv("baselines.csv", index=False)
+                        # print("Saved baselines.csv via pandas")
+                        CalibrationDone = True
+                #========================Tactile data calibration=================#
 
+                        
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:
                     left_hand_array[:] = left_hand.flatten()
