@@ -42,6 +42,7 @@ class ImageClient:
             self.tv_image_shm = shared_memory.SharedMemory(name=tv_img_shm_name)
             self.tv_img_array = np.ndarray(tv_img_shape, dtype = np.uint8, buffer = self.tv_image_shm.buf)
             self.tv_enable_shm = True
+            
         self.tv_depth_enable_shm = False
         if self.tv_depth_img_shape is not None and tv_depth_img_shm_name is not None:
             self.tv_depth_image_shm = shared_memory.SharedMemory(name=tv_depth_img_shm_name)    
@@ -161,14 +162,14 @@ class ImageClient:
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
                 np_depth_img = np.frombuffer(png_bytes, dtype=np.uint8) if png_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-                depth_image = cv2.imdecode(np_depth_img, cv2.IMREAD_UNCHANGED)
+                # depth_image = cv2.imdecode(np_depth_img, cv2.IMREAD_UNCHANGED)
 
                 # print(depth_image.dtype)
                 if current_image is None:
                     print("[Image Client] Failed to decode image.")
                     continue
                 
-                if depth_image is None:
+                if np_depth_img is None:
                     print("[Image Client] Failed to decode Depth image")
                     continue
                 
@@ -177,24 +178,26 @@ class ImageClient:
                 
                 if self.wrist_enable_shm:
                     np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
-                if self.tv_depth_enable_shm:
-                    np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
                     
+                if self.tv_depth_enable_shm:
+                    # np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
+                    np.copyto(self.tv_depth_img_array, np_depth_img)                    
                 if self._image_show:
                     height, width = current_image.shape[:2]
-                    d_height, d_width = depth_image.shape[:2]
+                    # d_height, d_width = depth_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
-                    resized_depth_image = cv2.resize(depth_image, (d_width // 2, d_height // 2))
+                    # resized_depth_image = cv2.resize(depth_image, (d_width // 2, d_height // 2))
                     cv2.imshow('Image Client Stream', resized_image)
-                    if depth_image is not None:
-                        depth_clipped = np.clip(depth_image.astype(np.float32), 0, MAX_DEPTH_MM)
-                        depth_scaled = (depth_clipped / MAX_DEPTH_MM * 255.0).astype(np.uint8)
-                        depth_color  = cv2.applyColorMap(depth_scaled, cv2.COLORMAP_JET)
-                        depth_color_resized = cv2.resize(depth_color, (d_width//2, d_height //2))
+                    
+                    # if depth_image is not None:
+                    #     depth_clipped = np.clip(depth_image.astype(np.float32), 0, MAX_DEPTH_MM)
+                    #     depth_scaled = (depth_clipped / MAX_DEPTH_MM * 255.0).astype(np.uint8)
+                    #     depth_color  = cv2.applyColorMap(depth_scaled, cv2.COLORMAP_JET)
+                    #     depth_color_resized = cv2.resize(depth_color, (d_width//2, d_height //2))
 
-                        cv2.imshow('Depth Image Client Stream (Color)', depth_color_resized)
-                    else:
-                        cv2.imshow('Depth Image Client Stream', resized_depth_image)
+                    #     cv2.imshow('Depth Image Client Stream (Color)', depth_color_resized)
+                    # else:
+                    #     # cv2.imshow('Depth Image Client Stream', resized_depth_image)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 

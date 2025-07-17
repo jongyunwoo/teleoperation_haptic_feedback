@@ -45,7 +45,12 @@ from hapticfeedback.playsound import warn_beep, grap_sound #sound 출력
 
 
 num_tactile_per_hand = 1062 # 추가
-target_model = YOLOv8("/home/scilab/Documents/teleoperation/rbhandseg/best.pt")
+num_samples = 5  # 평균을 내기 위한 측정 횟수
+left_readings = []
+right_readings = []
+THREADHOLD = 50
+CalibrationDone = False
+
 
         
 if __name__ == '__main__':
@@ -176,6 +181,30 @@ if __name__ == '__main__':
             while running:
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
+                
+                #========================Tactile data calibration=================#
+                if not CalibrationDone: 
+                    for i in range(num_samples):
+                        with dual_hand_data_lock:
+                            left_readings.append(np.array(dual_hand_touch_array[:1062]))
+                            right_readings.append(np.array(dual_hand_touch_array[-1062:]))
+                        # print(left_readings, right_readings)
+                        left_baseline = np.max(left_readings, axis=0)
+                        right_baseline = np.max(right_readings, axis = 0)
+                        print('Success calibration!', left_baseline, right_baseline)
+                        # df = pd.DataFrame({
+                        # "left_baseline":  left_baseline,
+                        # "right_baseline": right_baseline
+                        # })
+                        # df_reading = pd.DataFrame({
+                        #     "left_readings": left_readings,
+                        #     "right_readings": right_readings
+                        # })
+    
+                        # df.to_csv("baselines.csv", index=False)
+                        # print("Saved baselines.csv via pandas")
+                        CalibrationDone = True
+                #========================Tactile data calibration=================#
 
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:

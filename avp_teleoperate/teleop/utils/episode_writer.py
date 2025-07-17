@@ -7,9 +7,11 @@ import time
 from .rerun_visualizer import RerunLogger
 from queue import Queue, Empty
 from threading import Thread
+
 MAX_DEPTH_MM = 4000.0
+
 class EpisodeWriter():
-    def __init__(self, task_dir, frequency=30, image_size=[640, 480], rerun_log = True):
+    def __init__(self, task_dir, frequency=30, image_size=[848, 480], rerun_log = True):
         """
         image_size: [width, height]
         """
@@ -172,18 +174,24 @@ class EpisodeWriter():
                 item_data['colors'][color_key] = os.path.join('colors', color_name)
 
         # Save depths
+        # if depths:
+        #     for idx_depth, (depth_key, depth) in enumerate(depths.items()):
+        #         depth_name = f'{str(idx).zfill(6)}_{depth_key}.png'
+        #         if not cv2.imwrite(os.path.join(self.depth_dir, depth_name), depth):
+        #             print(f"Failed to save depth image.")
+        #         item_data['depths'][depth_key] = os.path.join('depths', depth_name)
+        #         depth_clipped = np.clip(depth.astype(np.float32), 0, MAX_DEPTH_MM)
+        #         depth_8u = (depth_clipped / MAX_DEPTH_MM * 255).astype(np.uint8)
+        #         preview = cv2.applyColorMap(depth_8u, cv2.COLORMAP_JET)        # 색상 맵
+        #         prev_name = f'{idx:06d}_{depth_key}_vis.jpg'
+        #         cv2.imwrite(os.path.join(self.depth_dir, prev_name), preview)
         if depths:
-            for idx_depth, (depth_key, depth) in enumerate(depths.items()):
-                depth_name = f'{str(idx).zfill(6)}_{depth_key}.png'
-                if not cv2.imwrite(os.path.join(self.depth_dir, depth_name), depth):
-                    print(f"Failed to save depth image.")
-                item_data['depths'][depth_key] = os.path.join('depths', depth_name)
-                depth_clipped = np.clip(depth.astype(np.float32), 0, MAX_DEPTH_MM)
-                depth_8u = (depth_clipped / MAX_DEPTH_MM * 255).astype(np.uint8)
-                preview = cv2.applyColorMap(depth_8u, cv2.COLORMAP_JET)        # 색상 맵
-                prev_name = f'{idx:06d}_{depth_key}_vis.jpg'
-                cv2.imwrite(os.path.join(self.depth_dir, prev_name), preview)
-                
+            for depth_key, depth_arr in depths.items():
+                fname = f'{idx:06d}_{depth_key}.npy'
+                path  = os.path.join(self.depth_dir, fname)
+                # raw uint16 numpy 배열로 저장
+                np.save(path, depth_arr)
+                item_data['depths'][depth_key] = os.path.join('depths', fname)                                
 
         # Save audios
         if audios:

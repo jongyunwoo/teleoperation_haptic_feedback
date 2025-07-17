@@ -178,21 +178,9 @@ if __name__ == '__main__':
                         with dual_hand_data_lock:
                             left_readings.append(np.array(dual_hand_touch_array[:1062]))
                             right_readings.append(np.array(dual_hand_touch_array[-1062:]))
-                        # print(left_readings, right_readings)
                         left_baseline = np.max(left_readings, axis=0)
                         right_baseline = np.max(right_readings, axis = 0)
                         print('Success calibration!', left_baseline, right_baseline)
-                        # df = pd.DataFrame({
-                        # "left_baseline":  left_baseline,
-                        # "right_baseline": right_baseline
-                        # })
-                        # df_reading = pd.DataFrame({
-                        #     "left_readings": left_readings,
-                        #     "right_readings": right_readings
-                        # })
-    
-                        # df.to_csv("baselines.csv", index=False)
-                        # print("Saved baselines.csv via pandas")
                         CalibrationDone = True
                 #========================Tactile data calibration=================#
 
@@ -271,7 +259,7 @@ if __name__ == '__main__':
                         pass
                     # head image
                     current_tv_image = tv_img_array.copy()
-                    depth_tv_image = tv_depth_img_array.copy()
+                    # depth_tv_image = tv_depth_img_array.copy()
                     # wrist image
                     if WRIST:
                         current_wrist_image = wrist_img_array.copy()
@@ -287,18 +275,18 @@ if __name__ == '__main__':
 
                     if recording:
                         colors = {}
-                        depths = {}
+                        depths = {'raw_depth_data' : tv_depth_img_array}
                         if BINOCULAR:
                             colors[f"color_{0}"] = current_tv_image[:, :tv_img_shape[1]//2]
                             colors[f"color_{1}"] = current_tv_image[:, tv_img_shape[1]//2:]
-                            depths[f"depth_{0}"] = depth_tv_image[:, :tv_depth_img_shape[1]//2]
-                            depths[f"depth_{1}"] = depth_tv_image[:, tv_depth_img_shape[1]//2:]
+                            # depths[f"depth_{0}"] = depth_tv_image[:, :tv_depth_img_shape[1]//2]
+                            # depths[f"depth_{1}"] = depth_tv_image[:, tv_depth_img_shape[1]//2:]
                             if WRIST:
                                 colors[f"color_{2}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{3}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
                         else:
                             colors[f"color_{0}"] = current_tv_image
-                            depths[f"depth_{0}"] = depth_tv_image
+                            # depths[f"depth_{0}"] = tv_depth_img_array
                             if WRIST:
                                 colors[f"color_{1}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{2}"] = current_wrist_image[:, wrist_img_shape[1]//2:]

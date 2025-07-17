@@ -44,6 +44,11 @@ from teleop.utils.episode_writer import EpisodeWriter
 from avp_teleoperate.hapticfeedback.haptics_bridge import init_player, start_haptics_stream
 
 num_tactile_per_hand = 1062 # 추가
+num_samples = 5  # 평균을 내기 위한 측정 횟수
+left_readings = []
+right_readings = []
+THREADHOLD = 50
+CalibrationDone = False
 
         
 if __name__ == '__main__':
@@ -169,10 +174,37 @@ if __name__ == '__main__':
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
 
+                
+                #========================Tactile data calibration=================#
+                if not CalibrationDone: 
+                    for i in range(num_samples):
+                        with dual_hand_data_lock:
+                            left_readings.append(np.array(dual_hand_touch_array[:1062]))
+                            right_readings.append(np.array(dual_hand_touch_array[-1062:]))
+                        # print(left_readings, right_readings)
+                        left_baseline = np.max(left_readings, axis=0)
+                        right_baseline = np.max(right_readings, axis = 0)
+                        print('Success calibration!', left_baseline, right_baseline)
+                        # df = pd.DataFrame({
+                        # "left_baseline":  left_baseline,
+                        # "right_baseline": right_baseline
+                        # })
+                        # df_reading = pd.DataFrame({
+                        #     "left_readings": left_readings,
+                        #     "right_readings": right_readings
+                        # })
+    
+                        # df.to_csv("baselines.csv", index=False)
+                        # print("Saved baselines.csv via pandas")
+                        CalibrationDone = True
+                #========================Tactile data calibration=================#
+                
+                
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:
                     left_hand_array[:] = left_hand.flatten()
                     right_hand_array[:] = right_hand.flatten()
+                
 
                 # get current state data.
                 current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()

@@ -43,64 +43,11 @@ from teleop.utils.episode_writer import EpisodeWriter
 from teleop.haptics_bridge import init_player, start_haptics_stream
 
 num_tactile_per_hand = 1062 # 추가
-#---------------behatics 추가 -----------#
-# def initialize_haptics():
-#     player.initialize()
-    
-# def tactile_to_dotpoints(tactile_array, max_val=None):
-#     """
-#     tactile_array: np.ndarray shape (1062,)
-#     여기서는 5개 nail 영역만 뽑아서 dot point 로 변환합니다.
-#       - little nail : 인덱스  9 ~ 105 (96개)
-#       - ring  nail : 인덱스 194 ~ 290 (96개)
-#       - middle nail : 인덱스 379 ~ 475 (96개)
-#       - index nail : 인덱스 564 ~ 660 (96개)
-#       - thumb nail : 인덱스 749 ~ 845 (96개)
-#     """
-#     # 1) nail 영역 인덱스 리스트
-#     segments = [
-#         (  9, 105),  # little
-#         (194, 290),  # ring
-#         (379, 475),  # middle
-#         (564, 660),  # index
-#         (749, 845),  # thumb
-#     ]
-
-#     # 2) 스케일 기준값
-#     frame_max = max_val if max_val is not None else (tactile_array.max() + 1e-6)
-#     scale = 100.0 / frame_max
-
-#     # 3) 각 segment 별 max 구하고 [0,100]으로 정규화
-#     dot_points = []
-#     for i, (start, end) in enumerate(segments):
-#         seg = tactile_array[start:end]               # 슬라이싱
-#         intensity = int(np.clip(seg.max() * scale, 0, 100))
-#         dot_points.append({
-#             "index": i,        # 0~4 로 모터 인덱스 매핑
-#             "intensity": intensity
-#         })
-
-#     return dot_points
-
-# def haptics_dual_streamer(touch_array, hz=30):
-#     interval = 1.0 / hz
-#     raw_buf = touch_array.get_obj() if hasattr(touch_array, 'get_obj') else touch_array
-#     buf = np.frombuffer(raw_buf, dtype=np.float64)
-
-#     while True:
-#         # 버퍼에서 좌/우 분리
-#         left_arr  = buf[:1062].copy()
-#         right_arr = buf[1062:].copy()
-
-#         # dot points 계산
-#         left_dp  = tactile_to_dotpoints(left_arr)
-#         right_dp = tactile_to_dotpoints(right_arr)
-
-#         # 진동 전송
-#         player.submit_dot("left_tactile",  BhapticsPosition.GloveL.value, left_dp,  duration_millis=int(interval*10))
-#         player.submit_dot("right_tactile", BhapticsPosition.GloveR.value, right_dp, duration_millis=int(interval*10))
-
-#         time.sleep(interval)
+num_samples = 5  # 평균을 내기 위한 측정 횟수
+left_readings = []
+right_readings = []
+THREADHOLD = 50
+CalibrationDone = False
 
         
 if __name__ == '__main__':
@@ -231,6 +178,30 @@ if __name__ == '__main__':
             while running:
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
+                
+                #========================Tactile data calibration=================#
+                if not CalibrationDone: 
+                    for i in range(num_samples):
+                        with dual_hand_data_lock:
+                            left_readings.append(np.array(dual_hand_touch_array[:1062]))
+                            right_readings.append(np.array(dual_hand_touch_array[-1062:]))
+                        # print(left_readings, right_readings)
+                        left_baseline = np.max(left_readings, axis=0)
+                        right_baseline = np.max(right_readings, axis = 0)
+                        print('Success calibration!', left_baseline, right_baseline)
+                        # df = pd.DataFrame({
+                        # "left_baseline":  left_baseline,
+                        # "right_baseline": right_baseline
+                        # })
+                        # df_reading = pd.DataFrame({
+                        #     "left_readings": left_readings,
+                        #     "right_readings": right_readings
+                        # })
+    
+                        # df.to_csv("baselines.csv", index=False)
+                        # print("Saved baselines.csv via pandas")
+                        CalibrationDone = True
+                #========================Tactile data calibration=================#
 
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:
