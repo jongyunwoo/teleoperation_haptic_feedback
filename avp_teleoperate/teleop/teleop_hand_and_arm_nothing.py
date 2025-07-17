@@ -23,7 +23,6 @@ import numpy as np
 import pandas as pd
 import time
 import argparse
-import cv2
 from multiprocessing import shared_memory, Array, Lock
 import threading
 

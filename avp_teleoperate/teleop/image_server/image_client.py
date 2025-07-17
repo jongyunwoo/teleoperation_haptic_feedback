@@ -162,7 +162,7 @@ class ImageClient:
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
                 np_depth_img = np.frombuffer(png_bytes, dtype=np.uint8) if png_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-                # depth_image = cv2.imdecode(np_depth_img, cv2.IMREAD_UNCHANGED)
+                depth_image = cv2.imdecode(np_depth_img, cv2.IMREAD_UNCHANGED)
 
                 # print(depth_image.dtype)
                 if current_image is None:
@@ -180,8 +180,8 @@ class ImageClient:
                     np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
                     
                 if self.tv_depth_enable_shm:
-                    # np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
-                    np.copyto(self.tv_depth_img_array, np_depth_img)                    
+                    np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
+                    # np.copyto(self.tv_depth_img_array, np_depth_img)                    
                 if self._image_show:
                     height, width = current_image.shape[:2]
                     # d_height, d_width = depth_image.shape[:2]
