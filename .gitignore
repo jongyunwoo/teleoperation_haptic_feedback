@@ -1,3 +1,7 @@
 inspire_hand_ws/unitree_sdk2_python/
 *.pt
 assets/
+runs/
+testimages/
+images/
+dataset/

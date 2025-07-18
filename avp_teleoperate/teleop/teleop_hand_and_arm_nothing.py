@@ -43,7 +43,7 @@ from teleop.utils.episode_writer import EpisodeWriter
 num_tactile_per_hand = 1062 # 추가
 
 # 여러 번 측정하여 평균을 내기 위한 설정
-num_samples = 5  # 평균을 내기 위한 측정 횟수
+num_samples = 10 # 평균을 내기 위한 측정 횟수
 left_readings = []
 right_readings = []
 THREADHOLD = 50
@@ -246,11 +246,21 @@ if __name__ == '__main__':
                             left_hand_touch = dual_hand_touch_array[:1062]
                             right_hand_touch = dual_hand_touch_array[-1062:]
                             
-                            calibration_left_hand_touch = left_hand_touch - left_baseline
-                            calibration_right_hand_touch = right_hand_touch - right_baseline
-                            calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
-                            calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)
-                            
+                            lb = left_hand_touch - left_baseline
+                            rb = right_hand_touch - right_baseline
+                            if lb < 0 or lb < THREADHOLD:
+                                calibrated_left_hand_touch = 0
+                            else:
+                                calibration_left_hand_touch = lb
+                            if rb < 0 or rb < THREADHOLD:
+                                calibrated_right_hand_touch = 0
+                            else:
+                                calibration_right_hand_touch = rb
+                            # calibration_right_hand_touch = right_hand_touch - right_baseline
+                            # calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
+                            # calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)
+                            # if calibrated_left_hand_touch < THREADHOLD:
+
                             left_hand_touch = calibrated_left_hand_touch
                             right_hand_touch = calibrated_right_hand_touch
                     else:

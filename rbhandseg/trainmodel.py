@@ -21,11 +21,8 @@ HOME = os.getcwd()
 IMAGE_DIR_PATH   = f"{HOME}/images"
 DATASET_DIR_PATH = os.path.join(HOME, "dataset")
 
-classes = ["left robot hand", "right robot hand", 'left robot arm', 'right robot arm']
-ontology = CaptionOntology({"left robot hand": "left robot hand",
-                            "right robot hand" : "right robot hand",
-                            'left robot arm' :'left robot arm',
-                            'right robot arm' : 'right robot arm'})
+classes = ['robot hand']
+ontology = CaptionOntology({'robot hand' : 'robot hand'})
 
 base_model = GroundedSAM(ontology=ontology)
 
@@ -70,7 +67,7 @@ sv.plot_images_grid(
     grid_size=SAMPLE_GRID_SIZE,    size=SAMPLE_PLOT_SIZE)
 print("✅ 라벨링 완료, 데이터셋은", DATASET_DIR_PATH, "에 생성되었습니다.")
 
-target_model = YOLOv8("yolov8n-seg.pt")
+target_model = YOLOv8("yolov8n.pt")
 target_model.train("./dataset/data.yaml", epochs=50, device="0")
 
 

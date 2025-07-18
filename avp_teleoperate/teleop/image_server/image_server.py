@@ -38,6 +38,7 @@ class RealSenseCamera(object):
         self._device = profile.get_device()
         if self._device is None:
             print('[Image Server] pipe_profile.get_device() is None .')
+        
         if self.enable_depth:
             assert self._device is not None
             depth_sensor = self._device.first_depth_sensor()
@@ -304,19 +305,21 @@ class ImageServer:
                     continue
                 jpg_bytes = buffer.tobytes()
                 
-                ret_d, depth_buffer = cv2.imencode('.png', head_depth)
-                if not ret_d:
-                    print("[Image Server] Depth Frames imencode is failed.")
-                    continue
-                png_bytes = depth_buffer.tobytes()
+                # ret_d, depth_buffer = cv2.imencode('.png', head_depth)
+                # if not ret_d:
+                #     print("[Image Server] Depth Frames imencode is failed.")
+                #     continue
+                #png_bytes = depth_buffer.tobytes()
+                depth_bytes = head_depth.tobytes()
+                
 
                 if self.Unit_Test:
                     timestamp = time.time()
                     frame_id = self.frame_count
                     header = struct.pack('dI', timestamp, frame_id)  # 8-byte double, 4-byte unsigned int
-                    message = [header, jpg_bytes, png_bytes]
+                    message = [header, jpg_bytes, depth_bytes]
                 else:
-                    message = [jpg_bytes, png_bytes]
+                    message = [jpg_bytes, depth_bytes]
 
                 self.socket.send_multipart(message)
 

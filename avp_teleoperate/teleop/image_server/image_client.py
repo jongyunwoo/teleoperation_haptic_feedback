@@ -5,7 +5,11 @@ import time
 import struct
 from collections import deque
 from multiprocessing import shared_memory
+from autodistill_yolov8 import YOLOv8
 MAX_DEPTH_MM = 4000.0
+model = YOLOv8(
+"/home/scilab/Documents/teleoperation/runs/detect/train/weights/best.pt")
+
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None, tv_depth_img_shape = None, tv_depth_img_shm_name=None,
                  wrist_img_shape = None, wrist_img_shm_name = None, 
@@ -156,20 +160,20 @@ class ImageClient:
                         continue
                 else:
                     # No header, entire message is image data
-                    jpg_bytes, png_bytes = message
+                    jpg_bytes, depth_bytes = message
                 
                 # Decode image
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
-                np_depth_img = np.frombuffer(png_bytes, dtype=np.uint8) if png_bytes else None
+                raw_depth = np.frombuffer(depth_bytes, dtype=np.uint8) if depth_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-                depth_image = cv2.imdecode(np_depth_img, cv2.IMREAD_UNCHANGED)
-
+                # depth_image = cv2.imdecode(raw_depth, cv2.IMREAD_UNCHANGED)
+                depth = depth_bytes.reshape((height, width))
                 # print(depth_image.dtype)
                 if current_image is None:
                     print("[Image Client] Failed to decode image.")
                     continue
                 
-                if np_depth_img is None:
+                if raw_depth is None:
                     print("[Image Client] Failed to decode Depth image")
                     continue
                 
@@ -180,24 +184,16 @@ class ImageClient:
                     np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
                     
                 if self.tv_depth_enable_shm:
-                    np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
-                    # np.copyto(self.tv_depth_img_array, np_depth_img)                    
+                    # np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
+                    np.copyto(self.tv_depth_img_array, raw_depth)                    
                 if self._image_show:
                     height, width = current_image.shape[:2]
-                    # d_height, d_width = depth_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
-                    # resized_depth_image = cv2.resize(depth_image, (d_width // 2, d_height // 2))
-                    cv2.imshow('Image Client Stream', resized_image)
+                    pred = model.predict(resized_image)
+                    pred_list = list(pred)
+                    res = pred_list[0]
+                    cv2.imshow('Image Client Stream', res)
                     
-                    # if depth_image is not None:
-                    #     depth_clipped = np.clip(depth_image.astype(np.float32), 0, MAX_DEPTH_MM)
-                    #     depth_scaled = (depth_clipped / MAX_DEPTH_MM * 255.0).astype(np.uint8)
-                    #     depth_color  = cv2.applyColorMap(depth_scaled, cv2.COLORMAP_JET)
-                    #     depth_color_resized = cv2.resize(depth_color, (d_width//2, d_height //2))
-
-                    #     cv2.imshow('Depth Image Client Stream (Color)', depth_color_resized)
-                    # else:
-                    #     # cv2.imshow('Depth Image Client Stream', resized_depth_image)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 
