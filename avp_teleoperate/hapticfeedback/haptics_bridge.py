@@ -57,7 +57,7 @@ _SEGMENTS = [
 
 
 def tactile_to_dotpoints(frame: np.ndarray,
-                          min_intensity: int =10) -> List[Dict[str, int]]:
+                          min_intensity: int =50) -> List[Dict[str, int]]:
 
     if frame.ndim != 1 or frame.size != 1062:
         raise ValueError("frame shape must be (1062,)")
@@ -66,10 +66,10 @@ def tactile_to_dotpoints(frame: np.ndarray,
     if fmax == 0:       # 모두 0 → 아무 진동도 안 보냄
         return []
 
-    # scale = 100.0 / fmax
+    scale = 100.0 / fmax
     dots = []
     for idx, (start, end) in enumerate(_SEGMENTS):
-        intensity = int(frame[start:end].max() * 100)
+        intensity = int(frame[start:end].max() * scale)
         if intensity < min_intensity:
             intensity = 0
         dots.append({"index": idx, "intensity": intensity})
@@ -79,7 +79,7 @@ def tactile_to_dotpoints(frame: np.ndarray,
 # ──────────────────────────────────────────────────────
 # 3. 공유배열 스트리머
 # ──────────────────────────────────────────────────────
-def start_haptics_stream(shared_array, hz: int = 30,
+def start_haptics_stream(shared_array, lb, rb, hz: int = 30,
                           duration_ms: int = 100) -> threading.Thread:
     """
     shared_array : multiprocessing.Array('d', 1062*2) 등의 버퍼
@@ -94,8 +94,10 @@ def start_haptics_stream(shared_array, hz: int = 30,
     def _loop():
         last_log = 0.0
         while True:
-            left = buf_np[:1062].copy()
-            right = buf_np[-1062:].copy()
+            left_raw = buf_np[:1062].copy()
+            right_raw = buf_np[-1062:].copy()
+            left = left_raw - lb
+            right = right_raw - rb
 
             # 값이 전부 0이면 skip (센서 or 컨트롤러 미동작)
             if left.max() or right.max():

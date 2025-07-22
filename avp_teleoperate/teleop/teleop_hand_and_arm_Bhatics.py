@@ -174,7 +174,7 @@ if __name__ == '__main__':
         
     try:
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
-        start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)    
+        start_haptics_stream(dual_hand_touch_array, left_baseline, right_baseline, hz=30, duration_ms=100)    
 
         if user_input.lower() == 'r':
             arm_ctrl.speed_gradual_max()

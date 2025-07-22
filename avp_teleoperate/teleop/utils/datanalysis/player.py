@@ -193,7 +193,7 @@ def load_data(npz_path: str, video_path: str):
 
 def main():
     app = QApplication(sys.argv)
-    input_name = "/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/output/episode_0005.npz"
+    input_name = "/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/output/episode_0001.npz"
     video_name = input_name.replace(".npz", ".mp4")
     tactile_dict, rgb_frames = load_data(input_name, video_name)
     viewer = TactileRGBViewer(tactile_dict, rgb_frames)
