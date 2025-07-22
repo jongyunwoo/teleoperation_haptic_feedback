@@ -52,17 +52,13 @@ def init_player(ws_addr: Optional[str] = None, verbose: bool = True) -> None:
 # 2. 1062-채널 → 5 개 손톱 영역 max → dot 리스트
 # ──────────────────────────────────────────────────────
 _SEGMENTS = [
-    (9, 105), (194, 290), (379, 475), (564, 660), (749, 845)
-]  # little, ring, middle, index, thumb
+    (749, 925), (564, 740), (379, 555), (194, 370), (9, 185),
+]  # thumb, index, middle, ring, little
 
 
 def tactile_to_dotpoints(frame: np.ndarray,
-                          min_intensity: int = 50) -> List[Dict[str, int]]:
-    """
-    frame : (1062,) float or int (0~4095)
-    반환    : [{"index": 0-4, "intensity": 0-100}, …]
-    - 세기가 min_intensity 미만이면 0 으로 클리핑
-    """
+                          min_intensity: int =10) -> List[Dict[str, int]]:
+
     if frame.ndim != 1 or frame.size != 1062:
         raise ValueError("frame shape must be (1062,)")
 
@@ -73,7 +69,7 @@ def tactile_to_dotpoints(frame: np.ndarray,
     # scale = 100.0 / fmax
     dots = []
     for idx, (start, end) in enumerate(_SEGMENTS):
-        intensity = int(frame[start:end].max() * 100 / 4095)
+        intensity = int(frame[start:end].max() * 100)
         if intensity < min_intensity:
             intensity = 0
         dots.append({"index": idx, "intensity": intensity})
@@ -99,7 +95,7 @@ def start_haptics_stream(shared_array, hz: int = 30,
         last_log = 0.0
         while True:
             left = buf_np[:1062].copy()
-            right = buf_np[1062:].copy()
+            right = buf_np[-1062:].copy()
 
             # 값이 전부 0이면 skip (센서 or 컨트롤러 미동작)
             if left.max() or right.max():
@@ -114,8 +110,8 @@ def start_haptics_stream(shared_array, hz: int = 30,
                         "R_touch", BhapticsPosition.GloveR.value,
                         r_dots, duration_millis=duration_ms)
 
-            # 5초 주기로 디버그 출력
-            if time.time() - last_log > 5:
+            #5초 주기로 디버그 출력
+            if time.time() - last_log > 1.0:
                 print(f"[haptics] max L/R = {left.max():.2f} / {right.max():.2f}")
                 last_log = time.time()
 

@@ -53,7 +53,7 @@ def thread_function(name):
 def initialize():
     global ws
     try:
-        ws = create_connection("ws://192.168.123.65:15881/v2/feedbacks",
+        ws = create_connection("ws://192.168.123.16:15881/v2/feedbacks",
                                sockopt=((socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),),
                                class_=WebSocketReceiver)
 

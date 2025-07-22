@@ -15,8 +15,8 @@ if not os.path.isdir(TACT_PYTHON_DIR):
 sys.path.insert(0, TACT_PYTHON_DIR)
 
 from time import sleep
-from bhaptics import better_haptic_player as player
-from bhaptics.better_haptic_player import BhapticsPosition
+# from bhaptics import better_haptic_player as player
+# from bhaptics.better_haptic_player import BhapticsPosition
 
 import cv2
 import numpy as np
@@ -182,8 +182,8 @@ if __name__ == '__main__':
                         print('Success calibration!', left_baseline, right_baseline)
                         CalibrationDone = True
                 #========================Tactile data calibration=================#
+                #=======================detection result bbox=================#
 
-                        
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:
                     left_hand_array[:] = left_hand.flatten()
@@ -246,16 +246,10 @@ if __name__ == '__main__':
                             left_hand_touch = dual_hand_touch_array[:1062]
                             right_hand_touch = dual_hand_touch_array[-1062:]
                             
-                            lb = left_hand_touch - left_baseline
-                            rb = right_hand_touch - right_baseline
-                            if lb < 0 or lb < THREADHOLD:
-                                calibrated_left_hand_touch = 0
-                            else:
-                                calibration_left_hand_touch = lb
-                            if rb < 0 or rb < THREADHOLD:
-                                calibrated_right_hand_touch = 0
-                            else:
-                                calibration_right_hand_touch = rb
+                            lb_delta = left_hand_touch - left_baseline
+                            rb_delta = right_hand_touch - right_baseline
+                            calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+                            calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
                             # calibration_right_hand_touch = right_hand_touch - right_baseline
                             # calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
                             # calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)
@@ -284,7 +278,7 @@ if __name__ == '__main__':
 
                     if recording:
                         colors = {}
-                        depths = {'raw_depth_data' : tv_depth_img_array}
+                        depths = {}
                         if BINOCULAR:
                             colors[f"color_{0}"] = current_tv_image[:, :tv_img_shape[1]//2]
                             colors[f"color_{1}"] = current_tv_image[:, tv_img_shape[1]//2:]
@@ -295,7 +289,7 @@ if __name__ == '__main__':
                                 colors[f"color_{3}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
                         else:
                             colors[f"color_{0}"] = current_tv_image
-                            # depths[f"depth_{0}"] = tv_depth_img_array
+                            depths[f"depth_{0}"] = tv_depth_img_array.copy()
                             if WRIST:
                                 colors[f"color_{1}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{2}"] = current_wrist_image[:, wrist_img_shape[1]//2:]

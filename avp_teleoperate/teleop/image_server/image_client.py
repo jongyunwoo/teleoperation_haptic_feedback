@@ -5,14 +5,13 @@ import time
 import struct
 from collections import deque
 from multiprocessing import shared_memory
-from autodistill_yolov8 import YOLOv8
+import queue
+
 MAX_DEPTH_MM = 4000.0
-model = YOLOv8(
-"/home/scilab/Documents/teleoperation/runs/detect/train/weights/best.pt")
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None, tv_depth_img_shape = None, tv_depth_img_shm_name=None,
-                 wrist_img_shape = None, wrist_img_shm_name = None, 
+                 wrist_img_shape = None, wrist_img_shm_name = None,  
                 image_show = False, server_address = "192.168.123.164", port = 5555, Unit_Test = False):
         """
         tv_img_shape: User's expected head camera resolution shape (H, W, C). It should match the output of the image service terminal.
@@ -36,7 +35,11 @@ class ImageClient:
         self._image_show = image_show
         self._server_address = server_address
         self._port = port
-
+        
+        self.model = None #추가
+        self._need_load_model = True #추가
+        
+        
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
         self.tv_depth_img_shape = tv_depth_img_shape
@@ -63,6 +66,17 @@ class ImageClient:
         self._enable_performance_eval = Unit_Test
         if self._enable_performance_eval:
             self._init_performance_metrics()
+            
+    #===================segmentation model load===================#
+    def _lazy_load_model(self):
+        if not self._need_load_model:
+            return
+        print("[ImageClient] Loading YOLOv8 model …")
+        from autodistill_yolov8 import YOLOv8
+        self.model = YOLOv8("/home/scilab/teleoperation/best (1).pt")
+        self._need_load_model = False
+        print("[ImageClient] YOLOv8 ready (cuda)")
+    #===================segmentation model load===================#
 
     def _init_performance_metrics(self):
         self._frame_count = 0  # Total frames received
@@ -162,13 +176,10 @@ class ImageClient:
                     # No header, entire message is image data
                     jpg_bytes, depth_bytes = message
                 
-                # Decode image
+                #  Decode image
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
-                raw_depth = np.frombuffer(depth_bytes, dtype=np.uint8) if depth_bytes else None
+                raw_depth = np.frombuffer(depth_bytes, dtype=np.uint16) if depth_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-                # depth_image = cv2.imdecode(raw_depth, cv2.IMREAD_UNCHANGED)
-                depth = depth_bytes.reshape((height, width))
-                # print(depth_image.dtype)
                 if current_image is None:
                     print("[Image Client] Failed to decode image.")
                     continue
@@ -176,24 +187,123 @@ class ImageClient:
                 if raw_depth is None:
                     print("[Image Client] Failed to decode Depth image")
                     continue
-                
-                if self.tv_enable_shm:
-                    np.copyto(self.tv_img_array, np.array(current_image[:, :self.tv_img_shape[1]]))
-                
+                if  self.tv_enable_shm:
+                    # 1) 모델에 넣을 크기 (예: 384×640) → ultralytics 기본
+                    model_h, model_w = 384, 640
+
+                    # 2) 원본 프레임
+                    orig = current_image
+                    oh, ow = orig.shape[:2]
+                    cx, cy = ow//2, oh//2
+
+                    # 3) 모델 입력 크기로 리사이즈
+                    inp = cv2.resize(orig, (model_w, model_h))
+                    
+                    # 4) 세그멘테이션 예측 (segmentation=True 플래그)
+                    self._lazy_load_model()
+                    preds = self.model.predict(inp,
+                                               confidence=0.5)   # Results object
+                    if preds[0].masks is None:
+                        print("[Image Client] No masks found in predictions.")
+                        np.copyto(self.tv_img_array, orig[:, :self.tv_img_shape[1]])
+                        continue
+                    else:
+                        masks = preds[0].masks.data.cpu().numpy()  # (N, model_h, model_w)
+
+                        # 5) 화살표 그리기
+                        overlay = orig.copy()
+                        scale_x = ow / model_w
+                        scale_y = oh / model_h
+
+                        for m in masks:
+                            ys, xs = np.where(m > 0)
+                            if ys.size == 0:
+                                continue
+                            min_y = int(ys.min())
+                            xs_at_min_y = xs[ys == min_y]
+                            min_x = int(xs_at_min_y.mean())
+
+                            # 모델 입력 좌표 → 원본 해상도로 스케일
+                            orig_x = int(min_x * scale_x)
+                            orig_y = int(min_y * scale_y)
+
+                            thickness = 2
+
+                            # 화살표
+                            cv2.arrowedLine(
+                                overlay,
+                                (cx, cy),
+                                (orig_x, orig_y),
+                                (255, 0, 0),
+                                thickness,
+                                tipLength=0.2
+                            )
+                        print(overlay.shape)
+                        # 6) shared‐memory 에 복사 (orig 해상도와 같아야 함)
+                        np.copyto(self.tv_img_array, overlay[:, :self.tv_img_shape[1]])
                 if self.wrist_enable_shm:
                     np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
                     
                 if self.tv_depth_enable_shm:
-                    # np.copyto(self.tv_depth_img_array, np.array(depth_image[:, :self.tv_depth_img_shape[1]]))
-                    np.copyto(self.tv_depth_img_array, raw_depth)                    
+                    raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
+                    np.copyto(self.tv_depth_img_array, raw_depth)
+                                        
                 if self._image_show:
                     height, width = current_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
-                    pred = model.predict(resized_image)
-                    pred_list = list(pred)
-                    res = pred_list[0]
-                    cv2.imshow('Image Client Stream', res)
-                    
+                    if self.model is None:
+                        print('!!!!!!!!!!!')
+                        cv2.imshow('Image Client Stream', resized_image)
+                        # cv2.waitKey(1)
+                        self._lazy_load_model()
+                    else:
+                        print('?????????')
+                        preds = self.model.predict(resized_image, confidence=0.5)
+                        result = preds[0]
+
+
+                        # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
+                        if result.masks is None:
+                            cv2.imshow('Image Client Stream', resized_image)
+                            if cv2.waitKey(1) & 0xFF == ord('q'):
+                                self.running = False
+                            continue
+                        
+                        masks = result.masks.data.cpu().numpy()  # shape (N, H, W)
+                        h, w = resized_image.shape[:2]
+                        cx, cy = w // 2, h // 2
+
+                        # 시각화용 복사본
+                        vis = resized_image.copy()
+
+                        for m in masks:
+                            ys, xs = np.where(m > 0)
+                            if ys.size == 0:
+                                continue
+                            min_y = int(ys.min())
+                            xs_at_min_y = xs[ys == min_y]
+                            min_x = int(xs_at_min_y.mean())
+
+                            # 경계 밖 좌표 clamp
+                            min_x = np.clip(min_x, 0, w - 1)
+                            min_y = np.clip(min_y, 0, h - 1)
+
+                            try:
+                                cv2.arrowedLine(
+                                    vis,
+                                    (cx, cy),
+                                    (min_x, min_y),
+                                    (255, 0, 0),  # 파랑
+                                    2,
+                                    tipLength=0.2
+                                )
+                            except Exception as e:
+                                print(f"[Arrow] 스킵: {e}")
+
+                        # 최종적으로 vis 를 띄우면 arrowedLine 때문에 predict 에는 영향 없습니다.
+                        cv2.imshow('Image Client Stream', vis)
+
+                        # cv2.imshow('Image Client Stream', preds[0].plot())
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 
