@@ -15,8 +15,8 @@ if not os.path.isdir(TACT_PYTHON_DIR):
 sys.path.insert(0, TACT_PYTHON_DIR)
 
 from time import sleep
-from bhaptics import better_haptic_player as player
-from bhaptics.better_haptic_player import BhapticsPosition
+# from bhaptics import better_haptic_player as player
+# from bhaptics.better_haptic_player import BhapticsPosition
 
 
 
@@ -40,7 +40,7 @@ from teleop.robot_control.robot_hand_unitree import Dex3_1_Controller, Gripper_C
 from teleop.robot_control.robot_hand_inspire import Inspire_Controller
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
-from teleop.haptics_bridge import init_player, start_haptics_stream
+# from teleop.haptics_bridge import init_player, start_haptics_stream
 
 num_tactile_per_hand = 1062 # 추가
 num_samples = 5  # 평균을 내기 위한 측정 횟수
@@ -153,17 +153,24 @@ if __name__ == '__main__':
                                        dual_hand_data_lock, dual_hand_state_array, 
                                        dual_hand_action_array, dual_hand_touch_array,
                                        dual_hand_force_array)
-        #─── bHaptics 실시간 스트리밍 스레드 시작 ────────────────────#
-        # initialize_haptics()
-        # # B) 한 스레드 방식
-        # t_dual = threading.Thread(target=haptics_dual_streamer,
-        #                   args=(dual_hand_touch_array, 30),
-        #                   daemon=True)
-        # t_dual.start()
-        # init_player()  # 별도 IP 필요 없으면 인자 없이
-        # start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
+
     else:
         pass
+    
+    time.sleep(5)
+    if not CalibrationDone:
+        for i in range(num_samples):
+            with dual_hand_data_lock:
+                left_readings.append(np.array(dual_hand_touch_array[:num_tactile_per_hand]))
+                right_readings.append(np.array(dual_hand_touch_array[-num_tactile_per_hand:]))
+        left_baseline = np.max(left_readings, axis=0)
+        right_baseline = np.max(right_readings, axis=0)
+        print('Calibration done:', left_baseline[:5], '...')  # 일부 값만 출력
+        CalibrationDone = True
+           
+    if args.record:
+        recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
+        recording = False
     
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
@@ -178,30 +185,6 @@ if __name__ == '__main__':
             while running:
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
-                
-                #========================Tactile data calibration=================#
-                if not CalibrationDone: 
-                    for i in range(num_samples):
-                        with dual_hand_data_lock:
-                            left_readings.append(np.array(dual_hand_touch_array[:1062]))
-                            right_readings.append(np.array(dual_hand_touch_array[-1062:]))
-                        # print(left_readings, right_readings)
-                        left_baseline = np.max(left_readings, axis=0)
-                        right_baseline = np.max(right_readings, axis = 0)
-                        print('Success calibration!', left_baseline, right_baseline)
-                        # df = pd.DataFrame({
-                        # "left_baseline":  left_baseline,
-                        # "right_baseline": right_baseline
-                        # })
-                        # df_reading = pd.DataFrame({
-                        #     "left_readings": left_readings,
-                        #     "right_readings": right_readings
-                        # })
-    
-                        # df.to_csv("baselines.csv", index=False)
-                        # print("Saved baselines.csv via pandas")
-                        CalibrationDone = True
-                #========================Tactile data calibration=================#
 
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:
@@ -264,6 +247,17 @@ if __name__ == '__main__':
                             #추가
                             left_hand_touch = dual_hand_touch_array[:1062]
                             right_hand_touch = dual_hand_touch_array[-1062:]
+                            lb_delta = left_hand_touch - left_baseline
+                            rb_delta = right_hand_touch - right_baseline
+                            calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+                            calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
+                            # calibration_right_hand_touch = right_hand_touch - right_baseline
+                            # calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
+                            # calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)
+                            # if calibrated_left_hand_touch < THREADHOLD:
+
+                            left_hand_touch = calibrated_left_hand_touch
+                            right_hand_touch = calibrated_right_hand_touch
 
 
                     else:
