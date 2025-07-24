@@ -181,17 +181,6 @@ if __name__ == '__main__':
                         left_baseline = np.max(left_readings, axis=0)
                         right_baseline = np.max(right_readings, axis = 0)
                         print('Success calibration!', left_baseline, right_baseline)
-                        # df = pd.DataFrame({
-                        # "left_baseline":  left_baseline,
-                        # "right_baseline": right_baseline
-                        # })
-                        # df_reading = pd.DataFrame({
-                        #     "left_readings": left_readings,
-                        #     "right_readings": right_readings
-                        # })
-    
-                        # df.to_csv("baselines.csv", index=False)
-                        # print("Saved baselines.csv via pandas")
                         CalibrationDone = True
                 #========================Tactile data calibration=================#
                 

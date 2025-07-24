@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # ① 열고 싶은 .npy 파일 경로
-npy_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0005/tactiles/000000_left_tactile.npy'
+npy_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0001/tactiles/000844_right_tactile.npy'
 # csv_path = '/home/scilab/Documents/g1_tele/episode_0033/tactiles/000055_left_tactile.csv'
 if not os.path.exists(npy_path):
     raise FileNotFoundError(f"{npy_path} 경로가 맞는지 확인하세요!")

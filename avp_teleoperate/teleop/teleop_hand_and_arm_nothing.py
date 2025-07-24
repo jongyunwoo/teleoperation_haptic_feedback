@@ -155,7 +155,16 @@ if __name__ == '__main__':
                                        dual_hand_force_array)
     else:
         pass
-    
+    time.sleep(5)
+    if not CalibrationDone:
+        for i in range(num_samples):
+            with dual_hand_data_lock:
+                left_readings.append(np.array(dual_hand_touch_array[:num_tactile_per_hand]))
+                right_readings.append(np.array(dual_hand_touch_array[-num_tactile_per_hand:]))
+        left_baseline = np.max(left_readings, axis=0)
+        right_baseline = np.max(right_readings, axis=0)
+        print('Calibration done:', left_baseline[:5], '...')  # 일부 값만 출력
+        CalibrationDone = True   
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
@@ -170,20 +179,7 @@ if __name__ == '__main__':
 
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
-                
-                #========================Tactile data calibration=================#
-                if not CalibrationDone: 
-                    for i in range(num_samples):
-                        with dual_hand_data_lock:
-                            left_readings.append(np.array(dual_hand_touch_array[:1062]))
-                            right_readings.append(np.array(dual_hand_touch_array[-1062:]))
-                        left_baseline = np.max(left_readings, axis=0)
-                        right_baseline = np.max(right_readings, axis = 0)
-                        print('Success calibration!', left_baseline, right_baseline)
-                        CalibrationDone = True
-                #========================Tactile data calibration=================#
-                #=======================detection result bbox=================#
-
+            
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:
                     left_hand_array[:] = left_hand.flatten()
