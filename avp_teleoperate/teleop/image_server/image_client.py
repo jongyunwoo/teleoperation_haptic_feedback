@@ -6,7 +6,7 @@ import struct
 from collections import deque
 from multiprocessing import shared_memory
 import queue
-from avp_teleoperate.hapticfeedback.visfeedback import overlayhand
+from hapticfeedback.visfeedback import ImageOverlay
 # MAX_DEPTH_MM = 4000.0
 l_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/img/l_inspirehand.png'
 r_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/img/r_inspirehand.png'
@@ -197,7 +197,7 @@ class ImageClient:
                     #     print("[Image Client] No masks found in predictions.")
                     #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     #     continue
-                    current_image = overlayhand(l_path, r_path, current_image)
+                    current_image = ImageOverlay.overlayhand(l_path, r_path, current_image)
                     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     
                 if self.wrist_enable_shm:
