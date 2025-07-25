@@ -6,9 +6,10 @@ import struct
 from collections import deque
 from multiprocessing import shared_memory
 import queue
-from utils.depthinterpolation import fill_holes_nearest
-
+from avp_teleoperate.hapticfeedback.visfeedback import overlayhand
 # MAX_DEPTH_MM = 4000.0
+l_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/img/l_inspirehand.png'
+r_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/img/r_inspirehand.png'
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None, tv_depth_img_shape = None, tv_depth_img_shm_name=None,
@@ -196,6 +197,7 @@ class ImageClient:
                     #     print("[Image Client] No masks found in predictions.")
                     #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     #     continue
+                    current_image = overlayhand(l_path, r_path, current_image)
                     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     
                 if self.wrist_enable_shm:
