@@ -62,4 +62,6 @@ def overlay(img, left_tactile, right_tactile, max_val=100):
             t = np.clip(v/max_val, 0.0, 1.0)
             # blue→red 보간
             color = (int((1-t)*255), 0, int(t*255))
-            cv2.rectangle(img, (x0,y0), (x1,y1), color, thickness=-1)
+            overlayimg=cv2.rectangle(img, (x0,y0), (x1,y1), color, thickness=-1)
+        
+    return overlayimg
