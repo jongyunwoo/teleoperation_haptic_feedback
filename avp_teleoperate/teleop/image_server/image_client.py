@@ -197,13 +197,11 @@ class ImageClient:
                     #     print("[Image Client] No masks found in predictions.")
                     #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     #     continue
-                    # tactile_sensor = self.dual_hand_touch_array
-                    # left_tactile_sensor = tactile_sensor[:1062]
-                    # right_tactile_sensor = tactile_sensor[-1062:]
-                    # current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
-                    # print(current_image.shape)
-                    np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
-                    
+                    tactile_sensor = self.dual_hand_touch_array
+                    left_tactile_sensor = tactile_sensor[:1062]
+                    right_tactile_sensor = tactile_sensor[-1062:]
+                    current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
+                    np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
                 if self.wrist_enable_shm:
                     np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
                     
@@ -216,7 +214,11 @@ class ImageClient:
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
                     if self.model is None:
                         print('!!!!!!!!!!!')
-                        cv2.imshow('Image Client Stream', resized_image)
+                        tactile_sensor = self.dual_hand_touch_array
+                        left_tactile_sensor = tactile_sensor[:1062]
+                        right_tactile_sensor = tactile_sensor[-1062:]
+                        current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
+                        cv2.imshow('Image Client Stream', current_image)
                         # cv2.waitKey(1)
                         self._lazy_load_model()
                     else:

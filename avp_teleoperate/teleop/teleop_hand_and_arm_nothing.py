@@ -156,23 +156,6 @@ if __name__ == '__main__':
     else:
         pass
     
-    time.sleep(5)
-    if not CalibrationDone:
-        for i in range(num_samples):
-            with dual_hand_data_lock:
-                left_readings.append(np.array(dual_hand_touch_array[:num_tactile_per_hand]))
-                right_readings.append(np.array(dual_hand_touch_array[-num_tactile_per_hand:]))
-        left_baseline = np.max(left_readings, axis=0)
-        right_baseline = np.max(right_readings, axis=0)
-        print('Calibration done:', left_baseline[:5], '...')  # 일부 값만 출력
-        CalibrationDone = True 
-    #추가
-    left_hand_touch = dual_hand_touch_array[:1062]
-    right_hand_touch = dual_hand_touch_array[-1062:]
-    lb_delta = left_hand_touch - left_baseline
-    rb_delta = right_hand_touch - right_baseline
-    calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
-    calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)  
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
@@ -181,6 +164,17 @@ if __name__ == '__main__':
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
         if user_input.lower() == 'r':
             arm_ctrl.speed_gradual_max()
+        
+        time.sleep(5)
+        if not CalibrationDone:
+            for i in range(num_samples):
+                with dual_hand_data_lock:
+                    left_readings.append(np.array(dual_hand_touch_array[:num_tactile_per_hand]))
+                    right_readings.append(np.array(dual_hand_touch_array[-num_tactile_per_hand:]))
+            left_baseline = np.max(left_readings, axis=0)
+            right_baseline = np.max(right_readings, axis=0)
+            print('Calibration done:', left_baseline[:5], '...')  
+            CalibrationDone = True 
 
             running = True
             while running:
@@ -247,13 +241,13 @@ if __name__ == '__main__':
                             left_hand_speed_action = dual_hand_action_array[24:30]
                             right_hand_speed_action = dual_hand_action_array[30:36]                            
                             # #추가
-                            # left_hand_touch = dual_hand_touch_array[:1062]
-                            # right_hand_touch = dual_hand_touch_array[-1062:]
+                            left_hand_touch = dual_hand_touch_array[:1062]
+                            right_hand_touch = dual_hand_touch_array[-1062:]
                             
-                            # lb_delta = left_hand_touch - left_baseline
-                            # rb_delta = right_hand_touch - right_baseline
-                            # calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
-                            # calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
+                            lb_delta = left_hand_touch - left_baseline
+                            rb_delta = right_hand_touch - right_baseline
+                            calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+                            calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
                             # calibration_right_hand_touch = right_hand_touch - right_baseline
                             # calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
                             # calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)

@@ -10,25 +10,25 @@ touch_dict = {
     "fingerfive_tip_touch":   9,   "fingerfive_top_touch":   96,  "fingerfive_middle_touch": 9,
     "fingerfive_palm_touch":  96,  "palm_touch":            112
 }
-
+offset = 200
 boxes = {
-    "fingerone_tip_touch":    (114,50,116,52),
-    "fingerone_top_touch":    (112,55,119,66),
-    "fingerone_palm_touch":   (108,75,115,84),
-    "fingertwo_tip_touch":    (96,38,98,40),
-    "fingertwo_top_touch":    (93,45,100,56),
-    "fingertwo_palm_touch":   (90,75,97,84),
-    "fingerthree_tip_touch":  (73,36,75,38),
-    "fingerthree_top_touch":  (71,41,78,52),
-    "fingerthree_palm_touch": (73,75,80,84),
-    "fingerfour_tip_touch":   (52,38,54,40),
-    "fingerfour_top_touch":   (50,44,57,55),
-    "fingerfour_palm_touch":  (53,75,60,84),
-    "fingerfive_tip_touch":   (31,64,33,66),
-    "fingerfive_top_touch":   (30,69,37,80),
-    "fingerfive_middle_touch":(35,90,37,92),
-    "fingerfive_palm_touch":  (33,100,40,111),
-    "palm_touch":             (69,94,82,101),
+    "fingerone_tip_touch":    (114+offset,50,116+offset,52),
+    "fingerone_top_touch":    (112+offset,55,119+offset,66),
+    "fingerone_palm_touch":   (108+offset,75,115+offset,84),
+    "fingertwo_tip_touch":    (96+offset,38,98+offset,40),
+    "fingertwo_top_touch":    (93+offset,45,100+offset,56),
+    "fingertwo_palm_touch":   (90+offset,75,97+offset,84),
+    "fingerthree_tip_touch":  (73+offset,36,75+offset,38),
+    "fingerthree_top_touch":  (71+offset,41,78+offset,52),
+    "fingerthree_palm_touch": (73+offset,75,80+offset,84),
+    "fingerfour_tip_touch":   (52+offset,38,54+offset,40),
+    "fingerfour_top_touch":   (50+offset,44,57+offset,55),
+    "fingerfour_palm_touch":  (53+offset,75,60+offset,84),
+    "fingerfive_tip_touch":   (31+offset,64,33+offset,66),
+    "fingerfive_top_touch":   (30+offset,69,37+offset,80),
+    "fingerfive_middle_touch":(35+offset,90,37+offset,92),
+    "fingerfive_palm_touch":  (33+offset,100,40+offset,111),
+    "palm_touch":             (69+offset,94,82+offset,101),
 }
 
 # 각 region → tactile_array 인덱스 슬라이스 계산
@@ -38,7 +38,7 @@ for region, cnt in touch_dict.items():
     _region_slices[region] = slice(_start, _start+cnt)
     _start += cnt
 
-def overlay(img, left_tactile, right_tactile, max_val=100):
+def overlay(img, left_tactile, right_tactile, max_val=1e-10):
     """
     img           : BGR image
     left_tactile  : numpy array shape (1062,)
