@@ -155,6 +155,7 @@ if __name__ == '__main__':
                                        dual_hand_force_array)
     else:
         pass
+    
     time.sleep(5)
     if not CalibrationDone:
         for i in range(num_samples):
@@ -164,7 +165,14 @@ if __name__ == '__main__':
         left_baseline = np.max(left_readings, axis=0)
         right_baseline = np.max(right_readings, axis=0)
         print('Calibration done:', left_baseline[:5], '...')  # 일부 값만 출력
-        CalibrationDone = True   
+        CalibrationDone = True 
+    #추가
+    left_hand_touch = dual_hand_touch_array[:1062]
+    right_hand_touch = dual_hand_touch_array[-1062:]
+    lb_delta = left_hand_touch - left_baseline
+    rb_delta = right_hand_touch - right_baseline
+    calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+    calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)  
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
@@ -238,20 +246,19 @@ if __name__ == '__main__':
                             right_hand_force_action = dual_hand_action_array[18:24]
                             left_hand_speed_action = dual_hand_action_array[24:30]
                             right_hand_speed_action = dual_hand_action_array[30:36]                            
-                            #추가
-                            left_hand_touch = dual_hand_touch_array[:1062]
-                            right_hand_touch = dual_hand_touch_array[-1062:]
+                            # #추가
+                            # left_hand_touch = dual_hand_touch_array[:1062]
+                            # right_hand_touch = dual_hand_touch_array[-1062:]
                             
-                            lb_delta = left_hand_touch - left_baseline
-                            rb_delta = right_hand_touch - right_baseline
-                            calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
-                            calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
+                            # lb_delta = left_hand_touch - left_baseline
+                            # rb_delta = right_hand_touch - right_baseline
+                            # calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+                            # calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
                             # calibration_right_hand_touch = right_hand_touch - right_baseline
                             # calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
                             # calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)
                             # if calibrated_left_hand_touch < THREADHOLD:
-
-                            left_hand_touch = calibrated_left_hand_touch
+                            left_hand_touch = calibrated_left_hand_touch                            
                             right_hand_touch = calibrated_right_hand_touch
                     else:
                         print("No dexterous hand set.")

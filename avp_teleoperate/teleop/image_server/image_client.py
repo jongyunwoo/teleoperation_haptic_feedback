@@ -6,14 +6,15 @@ import struct
 from collections import deque
 from multiprocessing import shared_memory
 import queue
-from hapticfeedback.visfeedback import ImageOverlay
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from hapticfeedback.visfeedback import overlay
+
 # MAX_DEPTH_MM = 4000.0
-l_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/img/l_inspirehand.png'
-r_path = '/home/scilab/Documents/teleoperation/avp_teleoperate/img/r_inspirehand.png'
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None, tv_depth_img_shape = None, tv_depth_img_shm_name=None,
-                 wrist_img_shape = None, wrist_img_shm_name = None,  
+                 wrist_img_shape = None, wrist_img_shm_name = None, dual_hand_touch_array = None,
                 image_show = False, server_address = "192.168.123.164", port = 5555, Unit_Test = False):
         """
         tv_img_shape: User's expected head camera resolution shape (H, W, C). It should match the output of the image service terminal.
@@ -40,12 +41,12 @@ class ImageClient:
         
         self.model = None #추가
         self._need_load_model = True #추가
-        
+        self.dual_hand_touch_array = dual_hand_touch_array
         
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
         self.tv_depth_img_shape = tv_depth_img_shape
-
+        
         self.tv_enable_shm = False
         if self.tv_img_shape is not None and tv_img_shm_name is not None:
             self.tv_image_shm = shared_memory.SharedMemory(name=tv_img_shm_name)
@@ -79,7 +80,6 @@ class ImageClient:
         self._need_load_model = False
         print("[ImageClient] YOLOv8 ready (cuda)")
     #===================segmentation model load===================#
-
     def _init_performance_metrics(self):
         self._frame_count = 0  # Total frames received
         self._last_frame_id = -1  # Last received frame ID
@@ -197,7 +197,10 @@ class ImageClient:
                     #     print("[Image Client] No masks found in predictions.")
                     #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     #     continue
-                    current_image = ImageOverlay.overlayhand(l_path, r_path, current_image)
+                    tactile_sensor = self.dual_hand_touch_array
+                    left_tactile_sensor = tactile_sensor[:1062]
+                    right_tactile_sensor = tactile_sensor[-1062:]
+                    current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
                     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     
                 if self.wrist_enable_shm:

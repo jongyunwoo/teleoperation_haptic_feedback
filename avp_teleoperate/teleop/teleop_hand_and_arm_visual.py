@@ -103,7 +103,7 @@ if __name__ == '__main__':
                                  wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name)
     else:
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,
-                                 tv_depth_img_shape = tv_depth_img_shape, tv_depth_img_shm_name = tv_depth_img_shm.name)
+                                 tv_depth_img_shape = tv_depth_img_shape, tv_depth_img_shm_name = tv_depth_img_shm.name, dual_hand_touch_array = Array('d', 1062 * 2, lock=False))
 
     image_receive_thread = threading.Thread(target = img_client.receive_process, daemon = True)
     image_receive_thread.daemon = True
@@ -167,7 +167,13 @@ if __name__ == '__main__':
         right_baseline = np.max(right_readings, axis=0)
         print('Calibration done:', left_baseline[:5], '...')  # 일부 값만 출력
         CalibrationDone = True
-           
+    #추가
+    left_hand_touch = dual_hand_touch_array[:1062]
+    right_hand_touch = dual_hand_touch_array[-1062:]
+    lb_delta = left_hand_touch - left_baseline
+    rb_delta = right_hand_touch - right_baseline
+    calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+    calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)             
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
@@ -245,17 +251,12 @@ if __name__ == '__main__':
                             left_hand_speed_action = dual_hand_action_array[24:30]
                             right_hand_speed_action = dual_hand_action_array[30:36]                            
                             #추가
-                            left_hand_touch = dual_hand_touch_array[:1062]
-                            right_hand_touch = dual_hand_touch_array[-1062:]
-                            lb_delta = left_hand_touch - left_baseline
-                            rb_delta = right_hand_touch - right_baseline
-                            calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
-                            calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
-                            # calibration_right_hand_touch = right_hand_touch - right_baseline
-                            # calibrated_left_hand_touch = np.maximum(0, calibration_left_hand_touch)
-                            # calibrated_right_hand_touch = np.maximum(0, calibration_right_hand_touch)
-                            # if calibrated_left_hand_touch < THREADHOLD:
-
+                            # left_hand_touch = dual_hand_touch_array[:1062]
+                            # right_hand_touch = dual_hand_touch_array[-1062:]
+                            # lb_delta = left_hand_touch - left_baseline
+                            # rb_delta = right_hand_touch - right_baseline
+                            # calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+                            # calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
                             left_hand_touch = calibrated_left_hand_touch
                             right_hand_touch = calibrated_right_hand_touch
 
