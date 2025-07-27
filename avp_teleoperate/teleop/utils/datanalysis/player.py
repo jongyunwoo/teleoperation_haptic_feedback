@@ -1,3 +1,10 @@
+import os
+# 실제 경로는 환경에 따라 달라질 수 있습니다.
+os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(
+    os.environ["CONDA_PREFIX"],
+    "lib/python3.10/site-packages/PyQt5/Qt/plugins/platforms"
+)
+
 import sys
 import numpy as np
 import cv2

@@ -5,3 +5,6 @@ runs/
 testimages/
 images/
 dataset/
+*.png
+test_vis/
+joint_opt_vis/
