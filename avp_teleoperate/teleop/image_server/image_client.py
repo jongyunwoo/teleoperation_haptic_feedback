@@ -201,8 +201,7 @@ class ImageClient:
                     left_tactile_sensor = tactile_sensor[:1062]
                     right_tactile_sensor = tactile_sensor[-1062:]
                     current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
-                    np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
-                    
+                    np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
                 if self.wrist_enable_shm:
                     np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
                     
@@ -215,7 +214,11 @@ class ImageClient:
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
                     if self.model is None:
                         print('!!!!!!!!!!!')
-                        cv2.imshow('Image Client Stream', resized_image)
+                        tactile_sensor = self.dual_hand_touch_array
+                        left_tactile_sensor = tactile_sensor[:1062]
+                        right_tactile_sensor = tactile_sensor[-1062:]
+                        current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
+                        cv2.imshow('Image Client Stream', current_image)
                         # cv2.waitKey(1)
                         self._lazy_load_model()
                     else:
@@ -231,11 +234,7 @@ class ImageClient:
                                 self.running = False
                             continue
 
-
-                        # # 최종적으로 vis 를 띄우면 arrowedLine 때문에 predict 에는 영향 없습니다.
-                        # cv2.imshow('Image Client Stream', )
-
-                        cv2.imshow('Image Client Stream', preds[0].plot())
+                        cv2.imshow('Image Client Stream', result.plot())
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 
