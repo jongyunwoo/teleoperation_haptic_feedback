@@ -340,9 +340,10 @@ if __name__ == "__main__":
         'head_camera_type': 'realsense',
         'head_camera_image_shape': [480, 848],  # Head camera resolution
         'head_camera_id_numbers': ['339222071291'],
-        # 'wrist_camera_type': 'opencv',
-        # 'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
-        # 'wrist_camera_id_numbers': [2, 4],
+        'wrist_camera_type': 'realsense',
+        'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
+        'wrist_camera_id_numbers': ['918512072592'],
+
     }
 
     server = ImageServer(config, Unit_Test=False)

@@ -13,8 +13,8 @@ from hapticfeedback.visfeedback import overlay
 # MAX_DEPTH_MM = 4000.0
 
 class ImageClient:
-    def __init__(self, tv_img_shape = None, tv_img_shm_name = None, tv_depth_img_shape = None, tv_depth_img_shm_name=None,
-                 wrist_img_shape = None, wrist_img_shm_name = None, dual_hand_touch_array = None,
+    def __init__(self, tv_img_shape = None, tv_img_shm_name = None,
+                 wrist_img_shape = None, wrist_img_shm_name = None, wrist_depth_img_shape = None, wrist_depth_img_shm_name = None, dual_hand_touch_array = None,
                 image_show = False, server_address = "192.168.123.164", port = 5555, Unit_Test = False):
         """
         tv_img_shape: User's expected head camera resolution shape (H, W, C). It should match the output of the image service terminal.
@@ -45,7 +45,8 @@ class ImageClient:
         
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
-        self.tv_depth_img_shape = tv_depth_img_shape
+        # self.tv_depth_img_shape = tv_depth_img_shape
+        self.wrist_depth_img_shape = wrist_depth_img_shape
         
         self.tv_enable_shm = False
         if self.tv_img_shape is not None and tv_img_shm_name is not None:
@@ -53,17 +54,23 @@ class ImageClient:
             self.tv_img_array = np.ndarray(tv_img_shape, dtype = np.uint8, buffer = self.tv_image_shm.buf)
             self.tv_enable_shm = True
             
-        self.tv_depth_enable_shm = False
-        if self.tv_depth_img_shape is not None and tv_depth_img_shm_name is not None:
-            self.tv_depth_image_shm = shared_memory.SharedMemory(name=tv_depth_img_shm_name)    
-            self.tv_depth_img_array = np.ndarray(tv_depth_img_shape, dtype = np.uint16, buffer = self.tv_depth_image_shm.buf)
-            self.tv_depth_enable_shm = True
+        # self.tv_depth_enable_shm = False
+        # if self.tv_depth_img_shape is not None and tv_depth_img_shm_name is not None:
+        #     self.tv_depth_image_shm = shared_memory.SharedMemory(name=tv_depth_img_shm_name)    
+        #     self.tv_depth_img_array = np.ndarray(tv_depth_img_shape, dtype = np.uint16, buffer = self.tv_depth_image_shm.buf)
+        #     self.tv_depth_enable_shm = True
         
         self.wrist_enable_shm = False
         if self.wrist_img_shape is not None and wrist_img_shm_name is not None:
             self.wrist_image_shm = shared_memory.SharedMemory(name=wrist_img_shm_name)
             self.wrist_img_array = np.ndarray(wrist_img_shape, dtype = np.uint8, buffer = self.wrist_image_shm.buf)
             self.wrist_enable_shm = True
+
+        self.wrist_depth_enable_shm = False
+        if self.wrist_depth_img_shape is not None and wrist_depth_img_shm_name is not None:
+            self.wrist_depth_image_shm = shared_memory.SharedMemory(name = wrist_depth_img_shm_name)
+            self.wrist_depth_img_array = np.ndarray(wrist_depth_img_shape, dtype = np.uint16, buffer=self.wrist_depth_image_shm.buf)
+            self.wrist_depth_enable_shm = True
 
         # Performance evaluation parameters
         self._enable_performance_eval = Unit_Test
@@ -176,19 +183,32 @@ class ImageClient:
                         continue
                 else:
                     # No header, entire message is image data
-                    jpg_bytes, depth_bytes = message
+                    #jpg_bytes, depth_bytes, wrist_bytes = message
+                    jpg_bytes, wrist_jpg_bytes, wrist_depth_bytes = message
                 
                 #  Decode image
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
-                raw_depth = np.frombuffer(depth_bytes, dtype=np.uint16) if depth_bytes else None
+                wrist_np_img = np.frombuffer(wrist_jpg_bytes, dtype=np.uint8)
+                #raw_depth = np.frombuffer(depth_bytes, dtype=np.uint16) if depth_bytes else None
+                wrist_raw_depth = np.frombuffer(wrist_depth_bytes, dtype=np.uint16) if wrist_depth_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+                wrist_image = cv2.imdecode(wrist_np_img, cv2.IMREAD_COLOR)
                 if current_image is None:
-                    print("[Image Client] Failed to decode image.")
+                    print("[Image Client] Failed to decode Image.")
                     continue
                 
-                if raw_depth is None:
-                    print("[Image Client] Failed to decode Depth image")
+                # if raw_depth is None:
+                #     print("[Image Client] Failed to decode Depth Image")
+                #     continue
+                
+                if wrist_image is None:
+                    print("[Image Client] Failed to decode Image.")
                     continue
+                
+                if wrist_raw_depth is None:
+                   print("[Image Client] Failed to decode Wrist Depth Image")
+                   continue
+                
                 if  self.tv_enable_shm:
                     # self._lazy_load_model()
                     # preds = self.model.predict(current_image,
@@ -202,39 +222,46 @@ class ImageClient:
                     right_tactile_sensor = tactile_sensor[-1062:]
                     current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
                     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
+                
                 if self.wrist_enable_shm:
-                    np.copyto(self.wrist_img_array, np.array(current_image[:, -self.wrist_img_shape[1]:]))
-                    
-                if self.tv_depth_enable_shm:
-                    raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
-                    np.copyto(self.tv_depth_img_array, raw_depth)
-                                        
+                    np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
+                
+                # if self.tv_depth_enable_shm:
+                #     raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
+                #     np.copyto(self.tv_depth_img_array, raw_depth)
+                
+                if self.wrist_depth_enable_shm:
+                    wrist_raw_depth = wrist_raw_depth.reshape(self.wrist_depth_img_shape[0], self.wrist_depth_img_shape[1])
+                    np.copyto(self.wrist_depth_img_array, wrist_raw_depth)
+            
                 if self._image_show:
                     height, width = current_image.shape[:2]
+                    wrist_height, wrist_width = wrist_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
+                    wrist_resized_image = cv2.resize(wrist_image, (wrist_width // 2, wrist_height // 2))
                     if self.model is None:
                         print('!!!!!!!!!!!')
-                        tactile_sensor = self.dual_hand_touch_array
-                        left_tactile_sensor = tactile_sensor[:1062]
-                        right_tactile_sensor = tactile_sensor[-1062:]
-                        current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
-                        cv2.imshow('Image Client Stream', current_image)
+                        # tactile_sensor = self.dual_hand_touch_array
+                        # left_tactile_sensor = tactile_sensor[:1062]
+                        # right_tactile_sensor = tactile_sensor[-1062:]
+                        # current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
+                        cv2.imshow('Image Client Stream', wrist_resized_image)
                         # cv2.waitKey(1)
                         self._lazy_load_model()
-                    else:
-                        print('?????????')
-                        preds = self.model.predict(resized_image, confidence=0.5)
-                        result = preds[0]
+                    # else:
+                    #     print('?????????')
+                    #     preds = self.model.predict(resized_image, confidence=0.5)
+                    #     result = preds[0]
 
 
-                        # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
-                        if result.masks is None:
-                            cv2.imshow('Image Client Stream', resized_image)
-                            if cv2.waitKey(1) & 0xFF == ord('q'):
-                                self.running = False
-                            continue
+                    #     # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
+                    #     if result.masks is None:
+                    #         cv2.imshow('Image Client Stream', resized_image)
+                    #         if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #             self.running = False
+                    #         continue
 
-                        cv2.imshow('Image Client Stream', result.plot())
+                    #     cv2.imshow('Image Client Stream', result.plot())
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 

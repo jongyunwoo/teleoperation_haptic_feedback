@@ -57,7 +57,9 @@ class EpisodeWriter():
                 "date": datetime.date.today().strftime('%Y-%m-%d') if date is None else date,
                 "author": "unitree" if author is None else author,
                 "image": {"width":self.image_size[0], "height":self.image_size[1], "fps":self.frequency},
-                "depth": {"width":self.image_size[0], "height":self.image_size[1], "fps":self.frequency},
+                # "depth": {"width":self.image_size[0], "height":self.image_size[1], "fps":self.frequency},
+                'wrist_image' : {"width" : 480, 'height' : 640, 'fps' : self.frequency},
+                'wrist_depth' : {"width" : 480, 'height' : 640, 'fps' : self.frequency},
                 "audio": {"sample_rate": 16000, "channels": 1, "format":"PCM", "bits":16},    # PCM_S16
                 "joint_names":{
                     "left_arm":   ['kLeftShoulderPitch' ,'kLeftShoulderRoll', 'kLeftShoulderYaw', 'kLeftElbow', 'kLeftWristRoll', 'kLeftWristPitch', 'kLeftWristyaw'],
@@ -108,14 +110,18 @@ class EpisodeWriter():
         
         self.episode_dir = os.path.join(self.task_dir, f"episode_{str(self.episode_id).zfill(4)}")
         self.color_dir = os.path.join(self.episode_dir, 'colors')
+        self.wrist_color_dir = os.path.join(self.episode_dir, 'wrist_colors') #추가
         self.depth_dir = os.path.join(self.episode_dir, 'depths')
+        self.wrist_depth_dir = os.path.join(self.episode_dir, 'wrist_depths') #추가
         self.audio_dir = os.path.join(self.episode_dir, 'audios')
         #tactile 데이터 저장용 디렉토리 생성
         self.tactile_dir = os.path.join(self.episode_dir, 'tactiles') #추가
         self.json_path = os.path.join(self.episode_dir, 'data.json')
         os.makedirs(self.episode_dir, exist_ok=True)
         os.makedirs(self.color_dir, exist_ok=True)
+        os.makedirs(self.wrist_color_dir, exist_ok=True)
         os.makedirs(self.depth_dir, exist_ok=True)
+        os.makedirs(self.wrist_depth_dir, exist_ok=True) #추가
         os.makedirs(self.audio_dir, exist_ok=True)
         os.makedirs(self.tactile_dir, exist_ok=True) #추가
         if self.rerun_log:
@@ -125,14 +131,16 @@ class EpisodeWriter():
         print(f"==> New episode created: {self.episode_dir}")
         return True  # Return True if the episode is successfully created
         
-    def add_item(self, colors, depths, states=None, actions=None, tactiles=None, audios=None):
+    def add_item(self, colors, wrist_colors, depths, wrist_depths, states=None, actions=None, tactiles=None, audios=None):
         # Increment the item ID
         self.item_id += 1
         # Create the item data dictionary
         item_data = {
             'idx': self.item_id,
             'colors': colors,
+            'wrist_colors' : wrist_colors,
             'depths': depths,
+            'wrist_depths' : wrist_depths,
             'states': states,
             'actions': actions,
             'tactiles': tactiles, 
@@ -161,7 +169,9 @@ class EpisodeWriter():
     def _process_item_data(self, item_data):
         idx = item_data['idx']
         colors = item_data.get('colors', {})
+        wrist_colors = item_data.get('wrist_colors', {}) #추가
         depths = item_data.get('depths', {})
+        wrist_depths = item_data.get('wrist_depths', {}) #추가
         audios = item_data.get('audios', {})
         tactiles = item_data.get('tactiles', {}) #추가
 
@@ -185,6 +195,15 @@ class EpisodeWriter():
         #         preview = cv2.applyColorMap(depth_8u, cv2.COLORMAP_JET)        # 색상 맵
         #         prev_name = f'{idx:06d}_{depth_key}_vis.jpg'
         #         cv2.imwrite(os.path.join(self.depth_dir, prev_name), preview)
+        
+        
+        if wrist_colors:
+            for idx_wrist_color, (wrist_color_key, wrist_color) in enumerate(wrist_colors.items()):
+                wrist_color_name = f'{str(idx).zfill(6)}_{wrist_color_key}.jpg'
+                if not cv2.imwrite(os.path.join(self.wrist_color_dir, wrist_color_name), wrist_color):
+                    print(f"Failed to save color image.")
+                item_data['wrist_colors'][wrist_color_key] = os.path.join('colors', wrist_color_name)
+        
         if depths:
             for depth_key, depth_arr in depths.items():
                 fname = f'{idx:06d}_{depth_key}.npy'
@@ -192,7 +211,15 @@ class EpisodeWriter():
                 # raw uint16 numpy 배열로 저장
                 np.save(path, depth_arr)
                 item_data['depths'][depth_key] = os.path.join('depths', fname)                                
-
+       
+        if wrist_depths:
+            for wrist_depth_key, wrist_depth_arr in wrist_depths.items():
+                fname = f'{idx:06d}_{wrist_depth_key}.npy'
+                path  = os.path.join(self.wrist_depth_dir, fname)
+                # raw uint16 numpy 배열로 저장
+                np.save(path, wrist_depth_arr)
+                item_data['wrist_depths'][wrist_depth_key] = os.path.join('wrist_depths', fname)     
+        
         # Save audios
         if audios:
             for mic, audio in audios.items():

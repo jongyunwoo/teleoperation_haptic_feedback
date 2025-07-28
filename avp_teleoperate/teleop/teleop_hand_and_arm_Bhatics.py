@@ -43,7 +43,7 @@ from hapticfeedback.haptics_bridge import init_player, start_haptics_stream
 num_tactile_per_hand = 1062 # 추가
 
 # 여러 번 측정하여 평균을 내기 위한 설정
-num_samples = 10 # 평균을 내기 위한 측정 횟수
+num_samples = 20 # 평균을 내기 위한 측정 횟수
 left_readings = []
 right_readings = []
 THREADHOLD = 50
@@ -64,6 +64,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     print(f"args:{args}\n")
+    dual_hand_touch_array = Array('d', num_tactile_per_hand * 2, lock=False)
 
     # image client: img_config should be the same as the configuration in image_server.py (of Robot's development computing unit)
     img_config = {
@@ -102,7 +103,7 @@ if __name__ == '__main__':
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name, 
                                  wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name)
     else:
-        img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,
+        img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name, dual_hand_touch_array=dual_hand_touch_array,
                                  tv_depth_img_shape = tv_depth_img_shape, tv_depth_img_shm_name = tv_depth_img_shm.name)
 
     image_receive_thread = threading.Thread(target = img_client.receive_process, daemon = True)
@@ -148,7 +149,7 @@ if __name__ == '__main__':
         dual_hand_state_array = Array('d', 12, lock = False)   # [output] current left, right hand state(12) data.
         dual_hand_action_array = Array('d', 36, lock = False)  # [output] current left, right hand action(36) data.
         dual_hand_force_array = Array('d', 12, lock=False)
-        dual_hand_touch_array = Array('d', 1062 * 2, lock=False) # 추가 [output] current left, right hand tactile data
+        dual_hand_touch_array = dual_hand_touch_array # 추가 [output] current left, right hand tactile data
         hand_ctrl = Inspire_Controller(left_hand_array, right_hand_array, 
                                        dual_hand_data_lock, dual_hand_state_array, 
                                        dual_hand_action_array, dual_hand_touch_array,
@@ -157,24 +158,26 @@ if __name__ == '__main__':
 
     else:
         pass
-    time.sleep(0.5)
     if not CalibrationDone:
         for i in range(num_samples):
             with dual_hand_data_lock:
                 left_readings.append(np.array(dual_hand_touch_array[:num_tactile_per_hand]))
                 right_readings.append(np.array(dual_hand_touch_array[-num_tactile_per_hand:]))
         left_baseline = np.max(left_readings, axis=0)
+        print(left_baseline)
         right_baseline = np.max(right_readings, axis=0)
-        print('Calibration done:', left_baseline[:5], '...')  # 일부 값만 출력
-        CalibrationDone = True   
-        
+        print(right_baseline)
+        print('Calibration done:', np.max(left_baseline), np.max(right_baseline), '...')  # 일부 값만 출력
+        CalibrationDone = True           
+
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
         
     try:
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
-        start_haptics_stream(dual_hand_touch_array, left_baseline, right_baseline, hz=30, duration_ms=100)    
+        start_haptics_stream(dual_hand_touch_array, left_baseline, right_baseline, hz=10, duration_ms=100)    
+        
 
         if user_input.lower() == 'r':
             arm_ctrl.speed_gradual_max()

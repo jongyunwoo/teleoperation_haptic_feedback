@@ -19,7 +19,6 @@ from time import sleep
 # from bhaptics.better_haptic_player import BhapticsPosition
 
 
-
 import numpy as np
 import time
 import argparse
@@ -64,6 +63,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     print(f"args:{args}\n")
+    dual_hand_touch_array = Array('d', num_tactile_per_hand * 2, lock=False)
 
     # image client: img_config should be the same as the configuration in image_server.py (of Robot's development computing unit)
     img_config = {
@@ -103,7 +103,7 @@ if __name__ == '__main__':
                                  wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name)
     else:
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,
-                                 tv_depth_img_shape = tv_depth_img_shape, tv_depth_img_shm_name = tv_depth_img_shm.name, dual_hand_touch_array = Array('d', 1062 * 2, lock=False))
+                                 tv_depth_img_shape = tv_depth_img_shape, tv_depth_img_shm_name = tv_depth_img_shm.name, dual_hand_touch_array = dual_hand_touch_array)
 
     image_receive_thread = threading.Thread(target = img_client.receive_process, daemon = True)
     image_receive_thread.daemon = True
@@ -148,7 +148,7 @@ if __name__ == '__main__':
         dual_hand_state_array = Array('d', 12, lock = False)   # [output] current left, right hand state(12) data.
         dual_hand_action_array = Array('d', 36, lock = False)  # [output] current left, right hand action(36) data.
         dual_hand_force_array = Array('d', 12, lock=False)
-        dual_hand_touch_array = Array('d', 1062 * 2, lock=False) # 추가 [output] current left, right hand tactile data
+        dual_hand_touch_array = dual_hand_touch_array # 추가 [output] current left, right hand tactile data
         hand_ctrl = Inspire_Controller(left_hand_array, right_hand_array, 
                                        dual_hand_data_lock, dual_hand_state_array, 
                                        dual_hand_action_array, dual_hand_touch_array,
@@ -156,8 +156,6 @@ if __name__ == '__main__':
 
     else:
         pass
-    
-    time.sleep(5)
     if not CalibrationDone:
         for i in range(num_samples):
             with dual_hand_data_lock:
@@ -166,14 +164,7 @@ if __name__ == '__main__':
         left_baseline = np.max(left_readings, axis=0)
         right_baseline = np.max(right_readings, axis=0)
         print('Calibration done:', left_baseline[:5], '...')  # 일부 값만 출력
-        CalibrationDone = True
-    #추가
-    left_hand_touch = dual_hand_touch_array[:1062]
-    right_hand_touch = dual_hand_touch_array[-1062:]
-    lb_delta = left_hand_touch - left_baseline
-    rb_delta = right_hand_touch - right_baseline
-    calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
-    calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)             
+        CalibrationDone = True       
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
@@ -186,7 +177,6 @@ if __name__ == '__main__':
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
         if user_input.lower() == 'r':
             arm_ctrl.speed_gradual_max()
-
             running = True
             while running:
                 start_time = time.time()
@@ -251,12 +241,12 @@ if __name__ == '__main__':
                             left_hand_speed_action = dual_hand_action_array[24:30]
                             right_hand_speed_action = dual_hand_action_array[30:36]                            
                             #추가
-                            # left_hand_touch = dual_hand_touch_array[:1062]
-                            # right_hand_touch = dual_hand_touch_array[-1062:]
-                            # lb_delta = left_hand_touch - left_baseline
-                            # rb_delta = right_hand_touch - right_baseline
-                            # calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
-                            # calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
+                            left_hand_touch = dual_hand_touch_array[:1062]
+                            right_hand_touch = dual_hand_touch_array[-1062:]
+                            lb_delta = left_hand_touch - left_baseline
+                            rb_delta = right_hand_touch - right_baseline
+                            calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+                            calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
                             left_hand_touch = calibrated_left_hand_touch
                             right_hand_touch = calibrated_right_hand_touch
 
