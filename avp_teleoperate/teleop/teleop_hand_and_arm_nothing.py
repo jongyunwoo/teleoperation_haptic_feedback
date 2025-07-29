@@ -106,7 +106,7 @@ if __name__ == '__main__':
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name, 
                                  wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name,
                                  wrist_depth_img_shape = wrist_depth_img_shape, wrist_depth_img_shm_name=wrist_depth_img_shm.name,
-                                 dual_hand_touch_array=dual_hand_touch_array)
+                                 dual_hand_touch_array=dual_hand_touch_array, image_show=True)
                                  
     else:
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,

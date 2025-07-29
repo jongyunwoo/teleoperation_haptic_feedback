@@ -163,7 +163,6 @@ class ImageClient:
         self._socket = self._context.socket(zmq.SUB)
         self._socket.connect(f"tcp://{self._server_address}:{self._port}")
         self._socket.setsockopt_string(zmq.SUBSCRIBE, "")
-
         print("\nImage client has started, waiting to receive data...")
         try:
             while self.running:
@@ -240,14 +239,14 @@ class ImageClient:
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
                     wrist_resized_image = cv2.resize(wrist_image, (wrist_width // 2, wrist_height // 2))
                     if self.model is None:
-                        print('!!!!!!!!!!!')
+                        # print('!!!!!!!!!!!')
                         # tactile_sensor = self.dual_hand_touch_array
                         # left_tactile_sensor = tactile_sensor[:1062]
                         # right_tactile_sensor = tactile_sensor[-1062:]
                         # current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
                         cv2.imshow('Image Client Stream', wrist_resized_image)
                         # cv2.waitKey(1)
-                        self._lazy_load_model()
+                        # self._lazy_load_model()
                     # else:
                     #     print('?????????')
                     #     preds = self.model.predict(resized_image, confidence=0.5)
