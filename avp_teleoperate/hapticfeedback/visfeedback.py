@@ -1,9 +1,6 @@
 import cv2
 import numpy as np
 
-# ─────────────────────────────────────────────────────
-# 150×150 기준 영역별 센서 개수
-# ─────────────────────────────────────────────────────
 touch_dict = {
     "fingerone_tip_touch":    9,   "fingerone_top_touch":    96,  "fingerone_palm_touch":   80,
     "fingertwo_tip_touch":    9,   "fingertwo_top_touch":    96,  "fingertwo_palm_touch":   80,
@@ -13,9 +10,7 @@ touch_dict = {
     "fingerfive_palm_touch":  96,  "palm_touch":            112
 }
 
-# ─────────────────────────────────────────────────────
-# 화면 상 박스 위치
-# ─────────────────────────────────────────────────────
+
 x_offset = 250
 y_offset = 30
 boxes = {
@@ -43,19 +38,13 @@ boxes = {
     "palm_touch":             (69+x_offset,94+y_offset,82+x_offset,111+y_offset),
 }
 
-# ─────────────────────────────────────────────────────
-# 영역 → 센서 인덱스 슬라이스
-# ─────────────────────────────────────────────────────
 _region_slices = {}
 _start = 0
 for region, cnt in touch_dict.items():
     _region_slices[region] = slice(_start, _start + cnt)
     _start += cnt
 
-# ─────────────────────────────────────────────────────
-# 센서수 → 격자 크기(가로 nx, 세로 ny) 매핑
-# 실제 센서 배치와 다르면 nx, ny를 바꾸거나 snake=True 사용
-# ─────────────────────────────────────────────────────
+
 GRID_BY_COUNT = {
     9:   (3, 3),
     96:  (12, 8),   # 12×8 = 96
@@ -71,9 +60,7 @@ def _grid_for_count(n: int) -> tuple[int, int]:
     ny = int(np.ceil(n / nx))
     return nx, ny
 
-# ─────────────────────────────────────────────────────
-# 색상 보간(Blue → Green → Yellow → Orange → Red)
-# ─────────────────────────────────────────────────────
+
 _STOPS  = np.array([0.0, 0.25, 0.50, 0.75, 1.00], dtype=float)
 _COLORS = np.array([
     [255,   0,   0],  # Blue   (BGR)
@@ -92,11 +79,6 @@ def _bgr_from_t(t: float) -> tuple[int, int, int]:
     c = (1.0 - a) * _COLORS[i] + a * _COLORS[i + 1]
     return int(c[0]), int(c[1]), int(c[2])
 
-# ─────────────────────────────────────────────────────
-# 한 박스를 nx×ny 격자로 나눠 센서별로 칠하기
-# snake=True 이면 행마다 지그재그(배선이 왕복형일 때)
-# vmax=None 이면 해당 박스 값의 95% 퍼센타일을 기준 스케일로 사용
-# ─────────────────────────────────────────────────────
 def _draw_grid(
     img: np.ndarray,
     box: tuple[int, int, int, int],
@@ -147,12 +129,7 @@ def _draw_grid(
             color = _bgr_from_t(t)
             cv2.rectangle(img, (xi0, yj0), (xi1, yj1), color, thickness=-1)
 
-# ─────────────────────────────────────────────────────
-# 메인 오버레이 함수
-# - 센서별(격자)로 칠함
-# - gamma<1, gain>1, t_min>0 으로 옅은 색 문제 해결
-# - vmax=None: 자동 스케일(95% 퍼센타일)
-# ─────────────────────────────────────────────────────
+
 def overlay(
     img: np.ndarray,
     left_tactile: np.ndarray,

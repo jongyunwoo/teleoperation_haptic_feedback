@@ -40,22 +40,18 @@ def tactile_to_dotpoints(
     *,
     key: str,                 # "L" 또는 "R" 손 구분
     thresh: float = 50.0,     # 노이즈 컷(이하 값은 0 취급)
-    p_low: float = 10.0,      # 하위 퍼센타일(0%에 대응)
+    p_low: float = 5.0,      # 하위 퍼센타일(0%에 대응)
     p_high: float = 99.0,     # 상위 퍼센타일(100%에 대응)
     alpha: float = 0.2,       # EMA 추적 속도(0.1~0.3 권장)
     min_ref_span: float = 300.0,  # 상하 스케일 최소 간격(너무 붙으면 포화)
     min_contact: float = 100.0,    # 전체 접촉 에너지 게이트(낮으면 무시)
     gamma: float = 1.2,       # 감마>1: 빨강 도달 늦춤
 ) -> list[dict]:
-    """
-    퍼센타일 기반 동적 스케일(EMA)로 각 손가락 점 강도를 0~100으로 펴서 반환.
-    """
+
     if frame.ndim != 1 or frame.size != 1062:
         raise ValueError("frame shape must be (1062,)")
 
     f = frame.astype(np.float32, copy=False)
-
-    # 세그먼트 통계: max 대신 90퍼센타일을 쓰면 스파이크에 덜 민감
     seg_vals = []
     for (s, e) in _SEGMENTS:
         seg = f[s:e]
