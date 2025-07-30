@@ -83,7 +83,7 @@ class ImageClient:
             return
         print("[ImageClient] Loading YOLOv8 model …")
         from autodistill_yolov8 import YOLOv8
-        self.model = YOLOv8("/home/scilab/teleoperation/best (1).pt")
+        self.model = YOLOv8("/home/scilab/teleoperation/yolo11_best.pt")
         self._need_load_model = False
         print("[ImageClient] YOLOv8 ready (cuda)")
     #===================segmentation model load===================#
@@ -238,24 +238,24 @@ class ImageClient:
                     wrist_height, wrist_width = wrist_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
                     wrist_resized_image = cv2.resize(wrist_image, (wrist_width // 2, wrist_height // 2))
-                    if self.model is None:
-                        # print('!!!!!!!!!!!')
+                    # if self.model is None:
+                    # print('!!!!!!!!!!!')
                         # tactile_sensor = self.dual_hand_touch_array
                         # left_tactile_sensor = tactile_sensor[:1062]
                         # right_tactile_sensor = tactile_sensor[-1062:]
                         # current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
-                        cv2.imshow('Image Client Stream', wrist_resized_image)
-                        # cv2.waitKey(1)
+                    cv2.imshow('Image Client Stream', wrist_image)
+                    # cv2.waitKey(1)
                         # self._lazy_load_model()
                     # else:
                     #     print('?????????')
-                    #     preds = self.model.predict(resized_image, confidence=0.5)
+                    #     preds = self.model.predict(wrist_resized_image, confidence=0.5)
                     #     result = preds[0]
 
 
                     #     # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
                     #     if result.masks is None:
-                    #         cv2.imshow('Image Client Stream', resized_image)
+                    #         cv2.imshow('Image Client Stream', wrist_resized_image)
                     #         if cv2.waitKey(1) & 0xFF == ord('q'):
                     #             self.running = False
                     #         continue
