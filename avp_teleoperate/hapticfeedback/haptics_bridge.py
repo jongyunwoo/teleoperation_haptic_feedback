@@ -40,7 +40,7 @@ def tactile_to_dotpoints(
     *,
     key: str,                 # "L" 또는 "R" 손 구분
     thresh: float = 50.0,     # 노이즈 컷(이하 값은 0 취급)
-    p_low: float = 5.0,      # 하위 퍼센타일(0%에 대응)
+    p_low: float = 1.0,      # 하위 퍼센타일(0%에 대응)
     p_high: float = 99.0,     # 상위 퍼센타일(100%에 대응)
     alpha: float = 0.2,       # EMA 추적 속도(0.1~0.3 권장)
     min_ref_span: float = 300.0,  # 상하 스케일 최소 간격(너무 붙으면 포화)
