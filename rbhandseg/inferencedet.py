@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import time
 from ultralytics import YOLO
 
-img = cv2.imread("/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0002/colors/001000_color_0.jpg")
-img = cv2.resize(img, (480, 848))
+img = cv2.imread("/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0006/colors/000002_color_0.jpg")
+# img = cv2.resize(img, (480, 848))
 
 # 1) 모델 로드
 model = YOLOv8(
@@ -17,7 +17,7 @@ model = YOLOv8(
 start = time.time()
 # 2) 예측 (기본 옵션 그대로)
 pred = model.predict(
-    '/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0002/colors/001000_color_0.jpg'
+    '/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0006/colors/000002_color_0.jpg'
 )
 end = time.time()
 print(end-start)

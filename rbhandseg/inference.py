@@ -9,17 +9,17 @@ import time
 from ultralytics import YOLO  # 또는 YOLOv8 래퍼
 
 def main():
-    img = cv2.imread("/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0002/colors/000912_color_0.jpg")
+    img = cv2.imread("/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0004/colors/000593_color_0.jpg")
     img = cv2.resize(img, (640, 640))
     # 1) 모델 로드
     model = YOLO(
-    "/home/scilab/Documents/teleoperation/runs/detect/train/weights/best.pt")
+    "/home/scilab/Documents/teleoperation/runs/segment/train/weights/best.pt")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.model = model.model.to(device)
     start = time.time()
     # 2) 예측 (기본 옵션 그대로)
     pred = model.predict(
-        source=img
+        img
     )
     end = time.time()
     print(end-start)
