@@ -3,14 +3,14 @@ import random
 import shutil
 import time
 
-source_folder = "/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/data/episode_0005/colors"
-destination_folder = "/home/scilab/Documents/teleoperation/output_folder"
+source_folder = "/home/scilab/Documents/teleoperation/dataset/images"
+destination_folder = "/home/scilab/Documents/teleoperation/dataset/valid"
 
 # 이미지 파일 목록 가져오기
 all_images = [f for f in os.listdir(source_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
 
 # 200장 랜덤 추출 (중복 허용)
-selected_images = random.choices(all_images, k=200)
+selected_images = random.choices(all_images, k=100)
 
 # output 폴더 없으면 생성
 os.makedirs(destination_folder, exist_ok=True)

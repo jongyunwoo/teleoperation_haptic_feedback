@@ -22,7 +22,7 @@ from typing import Optional, List, Dict
 from bhaptics import better_haptic_player as player
 from bhaptics.better_haptic_player import BhapticsPosition
 
-
+hatics_paused = False
 def init_player(ws_addr: Optional[str] = None, verbose: bool = True) -> None:
     """
     bHaptics Player WebSocket 초기화
@@ -101,6 +101,7 @@ def start_haptics_stream(shared_array,
                          hz: int = 10,
                          duration_ms: int = 100) -> threading.Thread:
 
+    global hatics_paused
     interval = 1.0 / hz
     buf_np = np.frombuffer(shared_array.get_obj()
                            if hasattr(shared_array, "get_obj") else shared_array,
@@ -121,8 +122,12 @@ def start_haptics_stream(shared_array,
     GAMMA = 1.2
 
     def _loop():
+        global haptics_paused
         last_log = 0.0
         while True:
+            if haptics_paused:
+                time.sleep(interval)  # ✅ Grip 중에는 haptics 완전 중단
+                continue
             # 스냅샷
             left  = np.array(buf_np[:1062],  dtype=np.float32, copy=True)
             right = np.array(buf_np[-1062:], dtype=np.float32, copy=True)

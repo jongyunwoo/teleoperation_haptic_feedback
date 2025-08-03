@@ -40,6 +40,36 @@ from teleop.robot_control.robot_hand_inspire import Inspire_Controller
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
 from hapticfeedback.haptics_bridge import init_player, start_haptics_stream #tactile feedback
+from hapticfeedback.grasp import RobustGripDetector
+from hapticfeedback.soundfeedback import StereoSoundFeedbackManager
+
+# ---------------- Grip Detector 및 Sound Feedback 초기화 ----------------
+touch_dict = {
+    "fingerone_tip_touch": 9,
+    "fingerone_top_touch": 96,
+    "fingerone_palm_touch": 80,
+    "fingertwo_tip_touch": 9,
+    "fingertwo_top_touch": 96,
+    "fingertwo_palm_touch": 80,
+    "fingerthree_tip_touch": 9,
+    "fingerthree_top_touch": 96,
+    "fingerthree_palm_touch": 80,
+    "fingerfour_tip_touch": 9,
+    "fingerfour_top_touch": 96,
+    "fingerfour_palm_touch": 80,
+    "fingerfive_tip_touch": 9,
+    "fingerfive_top_touch": 96,
+    "fingerfive_middle_touch": 9,
+    "fingerfive_palm_touch": 96,
+    "palm_touch": 112
+}
+
+detector_left = RobustGripDetector(touch_dict, contact_threshold=30, grip_force_threshold=40, min_fingers=2)
+detector_right = RobustGripDetector(touch_dict, contact_threshold=30, grip_force_threshold=40, min_fingers=2)
+
+sound_manager = StereoSoundFeedbackManager(grip_sound_path="/home/scilab/Documents/teleoperation/grip_sound.mp3")
+
+
 
 
 num_tactile_per_hand = 1062 # 추가
@@ -173,7 +203,7 @@ if __name__ == '__main__':
         print(left_baseline)
         right_baseline = np.max(right_readings, axis=0)
         print(right_baseline)
-        print('Calibration done:', np.max(left_baseline), np.max(right_baseline), '...')  # 일부 값만 출력
+        print('Calibration done:', np.max(left_baseline), np.max(right_baseline))  # 일부 값만 출력
         CalibrationDone = True  
         
     if args.record:
@@ -240,10 +270,8 @@ if __name__ == '__main__':
                         with dual_hand_data_lock:
                             left_hand_state = dual_hand_state_array[:6]
                             right_hand_state = dual_hand_state_array[-6:]
-                            
                             left_hand_force_state = dual_hand_action_array[:6]
                             right_hand_force_state = dual_hand_action_array[-6:]
-                            
                             left_hand_action = dual_hand_action_array[:6]
                             right_hand_action = dual_hand_action_array[6:12]
                             left_hand_force_action = dual_hand_action_array[12:18]
@@ -261,6 +289,14 @@ if __name__ == '__main__':
 
                             left_hand_touch = calibrated_left_hand_touch
                             right_hand_touch = calibrated_right_hand_touch
+                            contact_L, grip_L, fingers_L, avg_force_L = detector_left.update(calibrated_left_hand_touch)
+                            contact_R, grip_R, fingers_R, avg_force_R = detector_right.update(calibrated_right_hand_touch)
+                    
+                            print(f"[Left Hand] Contact: {contact_L}, Grip: {grip_L}, Fingers: {fingers_L}, Force: {avg_force_L:.2f}")
+                            print(f"[Right Hand] Contact: {contact_R}, Grip: {grip_R}, Fingers: {fingers_R}, Force: {avg_force_R:.2f}")
+                    
+                            sound_manager.update(grip_L, hand="left")
+                            sound_manager.update(grip_R, hand="right")
 
                     else:
                         print("No dexterous hand set.")
