@@ -40,12 +40,10 @@ from teleop.robot_control.robot_hand_inspire import Inspire_Controller
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
 from hapticfeedback.haptics_bridge import init_player, start_haptics_stream #tactile feedback
-from hapticfeedback.caldist import caldist #distance 계산 
-from hapticfeedback.playsound import warn_beep, grap_sound #sound 출력
 
 
 num_tactile_per_hand = 1062 # 추가
-num_samples = 5  # 평균을 내기 위한 측정 횟수
+num_samples = 10  # 평균을 내기 위한 측정 횟수
 left_readings = []
 right_readings = []
 THREADHOLD = 50
@@ -67,6 +65,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     print(f"args:{args}\n")
+    dual_hand_touch_array = Array('d', num_tactile_per_hand * 2, lock=False)
 
     # image client: img_config should be the same as the configuration in image_server.py (of Robot's development computing unit)
     img_config = {
@@ -74,9 +73,9 @@ if __name__ == '__main__':
         'head_camera_type': 'realsense',
         'head_camera_image_shape': [480, 848],  # Head camera resolution
         'head_camera_id_numbers': ['339222071291'],
-        #'wrist_camera_type': 'opencv',
-        #'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
-        #'wrist_camera_id_numbers': [2, 4],
+        # 'wrist_camera_type': 'realsense',
+        # 'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
+        # 'wrist_camera_id_numbers': ['918512072592'],
     }
     ASPECT_RATIO_THRESHOLD = 2.0 # If the aspect ratio exceeds this value, it is considered binocular
     if len(img_config['head_camera_id_numbers']) > 1 or (img_config['head_camera_image_shape'][1] / img_config['head_camera_image_shape'][0] > ASPECT_RATIO_THRESHOLD):
@@ -92,22 +91,26 @@ if __name__ == '__main__':
         tv_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1] * 2, 3)
     else:
         tv_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1], 3)
-        tv_depth_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1])
-    tv_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(tv_img_shape) * np.uint8().itemsize)
-    tv_img_array = np.ndarray(tv_img_shape, dtype = np.uint8, buffer = tv_img_shm.buf)
-    tv_depth_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(tv_depth_img_shape) * np.uint16().itemsize)
-    tv_depth_img_array = np.ndarray(tv_depth_img_shape, dtype = np.uint16, buffer = tv_depth_img_shm.buf)
-    
+        # tv_depth_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1])
+        tv_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(tv_img_shape) * np.uint8().itemsize)
+        tv_img_array = np.ndarray(tv_img_shape, dtype = np.uint8, buffer = tv_img_shm.buf)
+        #tv_depth_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(tv_depth_img_shape) * np.uint16().itemsize)
+        #tv_depth_img_array = np.ndarray(tv_depth_img_shape, dtype = np.uint16, buffer = tv_depth_img_shm.buf)
+
     if WRIST:
-        wrist_img_shape = (img_config['wrist_camera_image_shape'][0], img_config['wrist_camera_image_shape'][1] * 2, 3)
+        wrist_img_shape = (img_config['wrist_camera_image_shape'][0], img_config['wrist_camera_image_shape'][1], 3)
+        wrist_depth_img_shape = (img_config['wrist_camera_image_shape'][0], img_config['wrist_camera_image_shape'][1])
         wrist_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(wrist_img_shape) * np.uint8().itemsize)
         wrist_img_array = np.ndarray(wrist_img_shape, dtype = np.uint8, buffer = wrist_img_shm.buf)
+        wrist_depth_img_shm = shared_memory.SharedMemory(create=True, size = np.prod(wrist_depth_img_shape) * np.uint16().itemsize)
+        wrist_depth_img_array = np.ndarray(wrist_depth_img_shape, dtype= np.uint16, buffer= wrist_depth_img_shm.buf)
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name, 
-                                 wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name)
+                                 wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name,
+                                 wrist_depth_img_shape = wrist_depth_img_shape, wrist_depth_img_shm_name=wrist_depth_img_shm.name,
+                                 dual_hand_touch_array=dual_hand_touch_array)
     else:
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,
-                                 tv_depth_img_shape = tv_depth_img_shape, tv_depth_img_shm_name = tv_depth_img_shm.name)
-
+                                )
     image_receive_thread = threading.Thread(target = img_client.receive_process, daemon = True)
     image_receive_thread.daemon = True
     image_receive_thread.start()
@@ -115,13 +118,6 @@ if __name__ == '__main__':
     # television: obtain hand pose data from the XR device and transmit the robot's head camera image to the XR device.
     tv_wrapper = TeleVisionWrapper(BINOCULAR, tv_img_shape, tv_img_shm.name)
     
-    
-    #------------sound feedback-----------#
-    rawnp_img = tv_img_array.copy()
-    color_img = cv2.cvtColor(rawnp_img, cv2.COLOR_RGB2BGR)
-    depthnp_img = tv_depth_img_array.copy()
-    obj_rbhand_dis = caldist(color_img, depthnp_img, 0.001, target_model)
-    #------------sound feedback-----------#
     
     # arm
     if args.arm == 'G1_29':
@@ -164,16 +160,30 @@ if __name__ == '__main__':
                                        dual_hand_data_lock, dual_hand_state_array, 
                                        dual_hand_action_array, dual_hand_touch_array,
                                        dual_hand_force_array)
+        init_player()
         
     else:
         pass
-    
+    if not CalibrationDone:
+        for i in range(num_samples):
+            with dual_hand_data_lock:
+                left_readings.append(np.array(dual_hand_touch_array[:num_tactile_per_hand]))
+                right_readings.append(np.array(dual_hand_touch_array[-num_tactile_per_hand:]))
+        left_baseline = np.max(left_readings, axis=0)
+        print(left_baseline)
+        right_baseline = np.max(right_readings, axis=0)
+        print(right_baseline)
+        print('Calibration done:', np.max(left_baseline), np.max(right_baseline), '...')  # 일부 값만 출력
+        CalibrationDone = True  
+        
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
         
     try:
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
+        start_haptics_stream(dual_hand_touch_array, left_baseline, right_baseline, hz=10, duration_ms=100)    
+
         if user_input.lower() == 'r':
             arm_ctrl.speed_gradual_max()
 
@@ -181,31 +191,7 @@ if __name__ == '__main__':
             while running:
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
-                
-                #========================Tactile data calibration=================#
-                if not CalibrationDone: 
-                    for i in range(num_samples):
-                        with dual_hand_data_lock:
-                            left_readings.append(np.array(dual_hand_touch_array[:1062]))
-                            right_readings.append(np.array(dual_hand_touch_array[-1062:]))
-                        # print(left_readings, right_readings)
-                        left_baseline = np.max(left_readings, axis=0)
-                        right_baseline = np.max(right_readings, axis = 0)
-                        print('Success calibration!', left_baseline, right_baseline)
-                        # df = pd.DataFrame({
-                        # "left_baseline":  left_baseline,
-                        # "right_baseline": right_baseline
-                        # })
-                        # df_reading = pd.DataFrame({
-                        #     "left_readings": left_readings,
-                        #     "right_readings": right_readings
-                        # })
-    
-                        # df.to_csv("baselines.csv", index=False)
-                        # print("Saved baselines.csv via pandas")
-                        CalibrationDone = True
-                #========================Tactile data calibration=================#
-
+            
                 # send hand skeleton data to hand_ctrl.control_process
                 if args.hand:
                     left_hand_array[:] = left_hand.flatten()
@@ -234,16 +220,6 @@ if __name__ == '__main__':
                             recording = False
                     else:
                         recorder.save_episode()
-                
-                #-------------------tactile feedback--------------------#
-                init_player() 
-                start_haptics_stream(dual_hand_touch_array, hz=30, duration_ms=100)
-                #-------------------tactile feedback--------------------#
-                
-                
-                # --------------- sound feedback ------------------ #
-                warn_beep(obj_rbhand_dis)
-                #--------------- sound feedback-----------------------#
                 
                 # record data
                 if args.record:
@@ -277,6 +253,14 @@ if __name__ == '__main__':
                             #추가
                             left_hand_touch = dual_hand_touch_array[:1062]
                             right_hand_touch = dual_hand_touch_array[-1062:]
+                            
+                            lb_delta = left_hand_touch - left_baseline
+                            rb_delta = right_hand_touch - right_baseline
+                            calibrated_left_hand_touch  = np.where(lb_delta > THREADHOLD, lb_delta, 0)
+                            calibrated_right_hand_touch = np.where(rb_delta > THREADHOLD, rb_delta, 0)
+
+                            left_hand_touch = calibrated_left_hand_touch
+                            right_hand_touch = calibrated_right_hand_touch
 
                     else:
                         print("No dexterous hand set.")
@@ -285,10 +269,11 @@ if __name__ == '__main__':
                     
                     # head image
                     current_tv_image = tv_img_array.copy()
-                    depth_tv_image = tv_depth_img_array.copy()
+                    # depth_tv_image = tv_depth_img_array.copy()
                     # wrist image
                     if WRIST:
                         current_wrist_image = wrist_img_array.copy()
+                        current_wrist_raw_depth = wrist_depth_img_array.copy()
                     # arm state and action
                     left_arm_state  = current_lr_arm_q[:7]
                     left_arm_dq_state = current_lr_arm_dq[:7]
@@ -298,33 +283,29 @@ if __name__ == '__main__':
                     left_arm_torque_action = sol_tauff[:7]
                     right_arm_action = sol_q[-7:]
                     right_arm_torque_action = sol_tauff[-7:]
-
-
-                    #----------sound feedback--------#
-                    l_min, l_max, r_min, r_max = 0
-                    left_fingers_touch = np.mean(left_hand_touch[9:105, 194:290, 379:475, 564:660, 749:845])
-                    right_fingers_touch = np.mean(right_hand_touch[9:105, 194:290, 379:475, 564:660, 749:845])
-                    grap_sound(left_fingers_touch, right_fingers_touch, l_min, l_max, r_min, r_max)
-                    #----------sound feedback--------#
                     
                 
                     if recording:
                         colors = {}
+                        wrist_colors = {}
                         depths = {}
+                        wrist_depths = {}
                         if BINOCULAR:
                             colors[f"color_{0}"] = current_tv_image[:, :tv_img_shape[1]//2]
                             colors[f"color_{1}"] = current_tv_image[:, tv_img_shape[1]//2:]
-                            depths[f"depth_{0}"] = depth_tv_image[:, :tv_depth_img_shape[1]//2]
-                            depths[f"depth_{1}"] = depth_tv_image[:, tv_depth_img_shape[1]//2:]
+                            # depths[f"depth_{0}"] = depth_tv_image[:, :tv_depth_img_shape[1]//2]
+                            # depths[f"depth_{1}"] = depth_tv_image[:, tv_depth_img_shape[1]//2:]
                             if WRIST:
                                 colors[f"color_{2}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{3}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
                         else:
                             colors[f"color_{0}"] = current_tv_image
-                            depths[f"depth_{0}"] = depth_tv_image
+                            # depths[f"depth_{0}"] = tv_depth_img_array.copy()
                             if WRIST:
-                                colors[f"color_{1}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
-                                colors[f"color_{2}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
+                                wrist_colors[f"color_{0}"] = current_wrist_image
+                                # colors[f"color_{1}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
+                                # colors[f"color_{2}"] = current_wrist_image[:, wrist_img_shape[1]//2:] 
+                                wrist_depths[f'depth_{0}'] = current_wrist_raw_depth.copy()
                         states = {
                             "left_arm": {                                                                    
                                 "qpos":   left_arm_state.tolist(),    # numpy.array -> list
@@ -377,7 +358,7 @@ if __name__ == '__main__':
                             "right_tactile": right_hand_touch
 
                         }
-                        recorder.add_item(colors=colors, depths=depths, states=states, actions=actions, tactiles=tactiles)
+                        recorder.add_item(colors=colors, wrist_colors=wrist_colors, depths=depths, wrist_depths=wrist_depths, states=states, actions=actions, tactiles=tactiles)
 
                 current_time = time.time()
                 time_elapsed = current_time - start_time

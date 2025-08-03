@@ -21,8 +21,9 @@ HOME = os.getcwd()
 IMAGE_DIR_PATH   = f"{HOME}/images"
 DATASET_DIR_PATH = os.path.join(HOME, "dataset")
 
-classes = ['robot hand']
-ontology = CaptionOntology({'The image shows two robotic hands installed independently without robotic arms on a table. The robotic hands are designed in the form of multi-jointed artificial hands, capable of articulated movements of the index finger, middle finger, and thumb. They feature a black-and-white two-tone color scheme. At the base of each robotic hand, metallic rotary joints and connectors are visible.' : 'robot hand without arm'})
+classes = ['robot hand', 'box', 'orange block', 'green, block', 'purple block', 'cup', 'black block']
+ontology = CaptionOntology({'The image shows two robotic hands installed independently without robotic arms on. The robotic hands are designed in the form of multi-jointed artificial hands, capable of articulated movements of the index finger, middle finger, and thumb. They feature a black-and-white two-tone color scheme. At the base of each robotic hand, metallic rotary joints and connectors are visible.' : 'robot hand',
+                            'box' : 'box', 'orange block':'orange block', 'green, block':'green, block', 'purple block': 'purple block', 'cup':'cup', 'black block' : 'black block'})
 
 base_model = GroundedSAM(ontology=ontology)
 
