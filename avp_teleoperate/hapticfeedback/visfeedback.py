@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
-import json
-import os
+
 #손가락 tactile 센서 개수
 touch_dict = {
     "fingerone_tip_touch":    9,   "fingerone_top_touch":    96,  "fingerone_palm_touch":   80,
@@ -12,12 +11,6 @@ touch_dict = {
     "fingerfive_palm_touch":  96,  "palm_touch":            112
 }
 
-# 클릭한 좌표 저장
-left_json_path = "left_hand_outline.json"
-right_json_path = "right_hand_outline.json"
-
-points = []       # 현재 클릭 중인 좌표
-current_hand = "left"  # 기본은 왼손(left)
 # 오버레이 위치 보정(이미지 상의 위치 좌표)
 x_offset = 250
 y_offset = 30
@@ -143,40 +136,6 @@ def draw_grid(
             color = bgr_from_t(t)
             cv2.rectangle(img, (xi0, yj0), (xi1, yj1), color, thickness=-1)
 
-def mouse_callback(event, x, y, flags, param):
-    global points, display_img
-    if event == cv2.EVENT_LBUTTONDOWN:  # 마우스 왼쪽 클릭 시
-        points.append((x, y))
-        print(f"[{current_hand}] 점 추가: {x}, {y}")
-
-    # 실시간 표시
-    temp_img = display_img.copy()
-    for p in points:
-        cv2.circle(temp_img, p, 3, (0, 255, 0), -1)
-    if len(points) > 1:
-        cv2.polylines(temp_img, [np.array(points, np.int32)], isClosed=False, color=(0, 255, 255), thickness=2)
-    cv2.imshow("Draw Outline", temp_img)
-
-def save_points(points, path):
-    with open(path, "w") as f:
-        json.dump(points, f)
-    print(f"[저장 완료] {path}")
-
-def load_points(path):
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            pts = json.load(f)
-        print(f"[불러오기 완료] {path}")
-        return [(int(x), int(y)) for x, y in pts]
-    return []
-
-def draw_hand_outline(img: np.ndarray, points: list[tuple[int,int]], color=(255,255,255)):
-    """ 저장된 점으로 윤곽선을 그림 """
-    if not points: return img
-    pts = np.array(points, np.int32).reshape((-1, 1, 2))
-    cv2.polylines(img, [pts], isClosed=True, color=color, thickness=2)
-    return img
-
 
 def overlay(
     img: np.ndarray,
@@ -210,64 +169,47 @@ def overlay(
 
     return img
 
-def draw_hand_outline(img: np.ndarray, points: list[tuple[int,int]], color=(255,255,255)):
-    """ 저장된 점으로 윤곽선을 그림 """
-    if not points: return img
-    pts = np.array(points, np.int32).reshape((-1, 1, 2))
-    cv2.polylines(img, [pts], isClosed=True, color=color, thickness=2)
-    return img
+def annotate_arrow_only(image: np.ndarray,
+                        masks,
+                        exclude_class: str = "robot hand",
+                        names: list = None,
+                        arrow_length: int = 50) -> np.ndarray:
+    out = image.copy()
+    for i, mask in enumerate(masks.data):
+        # 클래스 필터링
+        if names is not None and hasattr(masks, "cls"):
+            cls_id = masks.cls[i]
+            if names[int(cls_id)] == exclude_class:
+                continue
 
-if __name__ == "__main__":
-    # 배경 이미지 (실제는 overlay 결과 이미지 사용 가능)
-    img = cv2.imread('/home/scilab/Documents/teleoperation/avp_teleoperate/teleop/utils/datanalysis/episode_0004/colors/000000_color_0.jpg')
-    display_img = img.copy()
+        # 바이너리 마스크
+        bin_mask = (mask * 255).astype(np.uint8)
+        contours, _ = cv2.findContours(bin_mask,
+                                       cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            continue
+        cnt = max(contours, key=cv2.contourArea)
 
-    # 좌/우 윤곽선 불러오기
-    left_points = load_points(left_json_path)
-    right_points = load_points(right_json_path)
+        # 최소 회전 박스에서 중심+각도만
+        rect = cv2.minAreaRect(cnt)  
+        (cx, cy), (rw, rh), angle = rect
+        # w<h 일 때 보정
+        if rw < rh:
+            angle += 90
 
-    if left_points:
-        display_img = draw_hand_outline(display_img, left_points, color=(0,255,0))  # 왼손은 초록색
-    if right_points:
-        display_img = draw_hand_outline(display_img, right_points, color=(255,0,0))  # 오른손은 파란색
+        # 화살표 계산
+        theta = np.deg2rad(angle)
+        start_pt = (int(cx), int(cy))
+        tip_pt   = (int(cx + arrow_length * np.cos(theta)),
+                    int(cy + arrow_length * np.sin(theta)))
 
-    cv2.namedWindow("Draw Outline")
-    cv2.setMouseCallback("Draw Outline", mouse_callback)
+        # 화살표만 그리기
+        cv2.arrowedLine(out,
+                        start_pt,
+                        tip_pt,
+                        color=(255, 0, 0),
+                        thickness=2,
+                        tipLength=0.3)
 
-    print("키 설명: [l]왼손 / [r]오른손 선택, [Enter]저장, [c]초기화, [ESC]종료")
-
-    while True:
-        cv2.imshow("Draw Outline", display_img)
-        key = cv2.waitKey(1) & 0xFF
-
-        if key == ord('l'):  # 왼손 선택
-            current_hand = "left"
-            points = []
-            print("왼손 윤곽선 지정 시작")
-
-        elif key == ord('r'):  # 오른손 선택
-            current_hand = "right"
-            points = []
-            print("오른손 윤곽선 지정 시작")
-
-        elif key == 13:  # Enter: 현재 손 윤곽선 저장
-            if points:
-                if current_hand == "left":
-                    save_points(points, left_json_path)
-                    left_points = points.copy()
-                else:
-                    save_points(points, right_json_path)
-                    right_points = points.copy()
-                display_img = img.copy()
-                if left_points: display_img = draw_hand_outline(display_img, left_points, (0,255,0))
-                if right_points: display_img = draw_hand_outline(display_img, right_points, (255,0,0))
-                points = []
-
-        elif key == ord('c'):  # 현재 점 초기화
-            points = []
-            print("현재 손 윤곽선 점 초기화")
-
-        elif key == 27:  # ESC 종료
-            break
-
-    cv2.destroyAllWindows()
+    return out

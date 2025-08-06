@@ -5,12 +5,16 @@ import time
 import struct
 from collections import deque
 from multiprocessing import shared_memory
-import queue
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from hapticfeedback.visfeedback import overlay
-
+from hapticfeedback.visfeedback import overlay, annotate_arrow_only
+from collections import deque
+import supervision as sv
 # MAX_DEPTH_MM = 4000.0
+buffer_size = 5
+min_classes = 1
+annotator = sv.MaskAnnotator()
+
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None,
@@ -38,7 +42,8 @@ class ImageClient:
         self._image_show = image_show
         self._server_address = server_address
         self._port = port
-        
+        self.tv_buffer = deque(maxlen=buffer_size)
+        self.wrist_buffer = deque(maxlen=buffer_size)
         self.model = None #추가
         self._need_load_model = True #추가
         self.dual_hand_touch_array = dual_hand_touch_array
@@ -86,6 +91,7 @@ class ImageClient:
         self.model = YOLOv8("/home/scilab/teleoperation/yolo11_best.pt")
         self._need_load_model = False
         print("[ImageClient] YOLOv8 ready (cuda)")
+        
     #===================segmentation model load===================#
     def _init_performance_metrics(self):
         self._frame_count = 0  # Total frames received
@@ -192,6 +198,7 @@ class ImageClient:
                 wrist_raw_depth = np.frombuffer(wrist_depth_bytes, dtype=np.uint16) if wrist_depth_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
                 wrist_image = cv2.imdecode(wrist_np_img, cv2.IMREAD_COLOR)
+                
                 if current_image is None:
                     print("[Image Client] Failed to decode Image.")
                     continue
@@ -209,21 +216,35 @@ class ImageClient:
                    continue
                 
                 if  self.tv_enable_shm:
-                    # self._lazy_load_model()
-                    # preds = self.model.predict(current_image,
-                    #                            confidence=0.5)   # Results object
-                    # if preds[0].masks is None:
-                    #     print("[Image Client] No masks found in predictions.")
-                    #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
-                    #     continue
-                    tactile_sensor = self.dual_hand_touch_array
-                    left_tactile_sensor = tactile_sensor[:1062]
-                    right_tactile_sensor = tactile_sensor[-1062:]
-                    current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
-                    np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
+                    self._lazy_load_model()
+                    preds = self.model.predict(current_image, confidence=0.6) 
+                    
+                    if preds[0].masks is None or len(set(preds[0].boxes.cls.tolist())) < min_classes:
+                        print("[Image Client] No masks found in predictions.")
+                        if self.tv_buffer:
+                            fb_mask = self.tv_buffer[-1] 
+                            current_image = annotate_arrow_only(current_image, fb_mask)    
+                            np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
+                        else:
+                            np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
+                    else:
+                        self.tv_buffer.append(preds[0].masks) 
+                        current_image = annotate_arrow_only(current_image, preds[0].masks)
+                        np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
                 
                 if self.wrist_enable_shm:
-                    np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
+                    self._lazy_load_model()
+                    preds_wrist = self.model.predict(wrist_image, confidence=0.6)
+                    if preds_wrist[0].masks is None or len(set(preds_wrist[0].boxes.cls.tolist())) < min_classes:
+                        print("[Image Client] No masks found in predictions.")
+                        if self.wrist_buffer:
+                            wrist_fb_mask = self.wrist_buffer[-1]
+                            np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
+                        else:
+                            np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
+                    else:
+                        self.wrist_buffer.append(preds_wrist[0].masks)
+                        np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
                 
                 # if self.tv_depth_enable_shm:
                 #     raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
@@ -238,29 +259,28 @@ class ImageClient:
                     wrist_height, wrist_width = wrist_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width // 2, height // 2))
                     wrist_resized_image = cv2.resize(wrist_image, (wrist_width // 2, wrist_height // 2))
-                    # if self.model is None:
-                    # print('!!!!!!!!!!!')
+                    if self.model is None:
+                        print('!!!!!!!!!!!')
                         # tactile_sensor = self.dual_hand_touch_array
                         # left_tactile_sensor = tactile_sensor[:1062]
                         # right_tactile_sensor = tactile_sensor[-1062:]
                         # current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
-                    cv2.imshow('Image Client Stream', wrist_image)
-                    # cv2.waitKey(1)
-                        # self._lazy_load_model()
-                    # else:
-                    #     print('?????????')
-                    #     preds = self.model.predict(wrist_resized_image, confidence=0.5)
-                    #     result = preds[0]
+                        cv2.imshow('Image Client Stream', wrist_image)
+                        cv2.waitKey(1)
+                        self._lazy_load_model()
+                    else:
+                        print('?????????')
+                        preds = self.model.predict(wrist_resized_image, confidence=0.5)
+                        result = preds[0]
 
+                        # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
+                        if result.masks is None:
+                            cv2.imshow('Image Client Stream', wrist_resized_image)
+                            if cv2.waitKey(1) & 0xFF == ord('q'):
+                                self.running = False
+                            continue
 
-                    #     # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
-                    #     if result.masks is None:
-                    #         cv2.imshow('Image Client Stream', wrist_resized_image)
-                    #         if cv2.waitKey(1) & 0xFF == ord('q'):
-                    #             self.running = False
-                    #         continue
-
-                    #     cv2.imshow('Image Client Stream', result.plot())
+                        cv2.imshow('Image Client Stream', result.plot())
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 
