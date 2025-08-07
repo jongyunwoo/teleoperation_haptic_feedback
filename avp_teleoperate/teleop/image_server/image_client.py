@@ -7,9 +7,10 @@ from collections import deque
 from multiprocessing import shared_memory
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from hapticfeedback.visfeedback import overlay, annotate_arrow_only
+from hapticfeedback.visfeedback import overlay, draw_alignment, DistanceOverlay
 from collections import deque
 import supervision as sv
+
 # MAX_DEPTH_MM = 4000.0
 buffer_size = 5
 min_classes = 1
@@ -47,12 +48,23 @@ class ImageClient:
         self.model = None #추가
         self._need_load_model = True #추가
         self.dual_hand_touch_array = dual_hand_touch_array
-        
+            
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
         # self.tv_depth_img_shape = tv_depth_img_shape
         self.wrist_depth_img_shape = wrist_depth_img_shape
         
+        head_intrinsics  = {"fx":615,"fy":615,"cx":self.tv_img_shape[1]/2,"cy":self.tv_img_shape[0]/2}
+        wrist_intrinsics= {"fx":615,"fy":615,"cx":self.wrist_img_shape[1]/2,"cy":self.wrist_img_shape[0]/2}
+        # head→wrist extrinsics 는 단위행렬로 두고, 픽셀 정렬 상태라고 가정
+        T_hw = np.eye(4)
+        self.dist_util = DistanceOverlay(
+            head_intrinsics,
+            wrist_intrinsics,
+            T_hw,
+            min_dist=0.02,
+            max_dist=0.20
+        )    
         self.tv_enable_shm = False
         if self.tv_img_shape is not None and tv_img_shm_name is not None:
             self.tv_image_shm = shared_memory.SharedMemory(name=tv_img_shm_name)
@@ -199,6 +211,7 @@ class ImageClient:
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
                 wrist_image = cv2.imdecode(wrist_np_img, cv2.IMREAD_COLOR)
                 
+                
                 if current_image is None:
                     print("[Image Client] Failed to decode Image.")
                     continue
@@ -217,20 +230,67 @@ class ImageClient:
                 
                 if  self.tv_enable_shm:
                     self._lazy_load_model()
-                    preds = self.model.predict(current_image, confidence=0.6) 
-                    
-                    if preds[0].masks is None or len(set(preds[0].boxes.cls.tolist())) < min_classes:
+                    preds = self.model.predict(current_image, confidence=0.6)[0] 
+                    class_id = preds.boxes.cls.tolist()
+                    if preds.masks is None or len(set(preds.boxes.cls.tolist())) < min_classes:
                         print("[Image Client] No masks found in predictions.")
                         if self.tv_buffer:
                             fb_mask = self.tv_buffer[-1] 
-                            current_image = annotate_arrow_only(current_image, fb_mask)    
+                            current_image = draw_alignment(current_image, fb_mask, class_id)    
                             np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                         else:
                             np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     else:
-                        self.tv_buffer.append(preds[0].masks) 
-                        current_image = annotate_arrow_only(current_image, preds[0].masks)
-                        np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
+                        self.tv_buffer.append(preds.masks) 
+                        current_image = draw_alignment(current_image, preds.masks, class_id)
+                        depth = wrist_raw_depth  # uint16 mm
+                        # object vs robot 분리
+                        robot_masks = []
+                        object_masks = []
+                        for m, cid in zip(preds.masks.xy, class_id):
+                            if cid in [4,5]:         # 왼/오른손 클래스
+                                robot_masks.append(m)
+                            else:
+                                object_masks.append(m)
+
+                        # DistanceOverlay 인스턴스 (미리 __init__ 에 생성해 두셨다면 self.dist_util)
+                        # 여기서는 예시로 매번 생성
+                        head_int = {"fx":615,"fy":615,
+                                    "cx":self.tv_img_shape[1]/2,
+                                    "cy":self.tv_img_shape[0]/2}
+                        wrist_int= {"fx":615,"fy":615,
+                                    "cx":self.wrist_img_shape[1]/2,
+                                    "cy":self.wrist_img_shape[0]/2}
+                        T_hw = np.eye(4)
+                        dist_util = DistanceOverlay(head_int, wrist_int, T_hw,
+                                                    min_dist=0.02, max_dist=0.20)
+
+                        # 각 로봇 손 mask 에 대해 오버레이
+                        for rmask in robot_masks:
+                            # 손 중심
+                            c_r = dist_util.compute_mask_centroid(rmask)
+                            if c_r is None: 
+                                continue
+                            
+                            # 가장 가까운 물체 중심 기반 단순 거리
+                            dists = []
+                            for omask in object_masks:
+                                c_o = dist_util.compute_mask_centroid(omask)
+                                if c_o is None: 
+                                    continue
+                                d = dist_util.compute_object_distance_simple(c_r, c_o, depth)
+                                if d is not None:
+                                    dists.append(d)
+                            if not dists:
+                                continue
+                            
+                            nearest = min(dists)
+                            # 오버레이
+                            current_image = dist_util.overlay_mask_with_color(
+                                current_image, rmask, nearest
+                            )
+
+                            np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
                 
                 if self.wrist_enable_shm:
                     self._lazy_load_model()
@@ -271,7 +331,7 @@ class ImageClient:
                     else:
                         print('?????????')
                         preds = self.model.predict(wrist_resized_image, confidence=0.5)
-                        result = preds[0]
+                        result = preds
 
                         # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
                         if result.masks is None:
@@ -281,6 +341,7 @@ class ImageClient:
                             continue
 
                         cv2.imshow('Image Client Stream', result.plot())
+                    
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
 

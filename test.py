@@ -5,7 +5,7 @@ import os.path as osp
 from glob import glob
 
 # 경로 설정
-root = "/home/scilab/Documents/teleoperation/output_robot_hand"
+root = "/home/scilab/Documents/teleoperation/yolo/output_robot_hand"
 img_dir = osp.join(root, "valid/images")
 lbl_dir = osp.join(root, "valid/labels")
 vis_dir = osp.join(root, "vis")
@@ -59,3 +59,30 @@ for img_path in sorted(glob(osp.join(img_dir, "*.jpg"))):
     cv2.imwrite(osp.join(vis_dir, f"{name}_vis.jpg"), vis)
 
 cv2.destroyAllWindows()
+
+
+# import os
+# from glob import glob
+
+# LABEL_DIRS = [
+#     "/home/scilab/Documents/teleoperation/yolo/datasets/peg_in_hole/labels/train",
+#     "/home/scilab/Documents/teleoperation/yolo/datasets/peg_in_hole/labels/val"
+# ]
+
+# for lbl_dir in LABEL_DIRS:
+#     for txt_path in glob(os.path.join(lbl_dir, "*.txt")):
+#         lines = []
+#         with open(txt_path, 'r') as f:
+#             for line in f:
+#                 parts = line.strip().split()
+#                 cls = int(parts[0]) - 1           # ID 재매핑: 1→0, 2→1
+#                 coords = parts[1:]
+#                 # 클래스 ID가 유효범위(0~nc-1)를 벗어나면 경고하고 건너뜁니다
+#                 if cls < 0 or cls > 1:
+#                     print(f"⚠️  {txt_path}: 클래스 {cls+1} → 재매핑 불가능, 스킵")
+#                     continue
+#                 lines.append(" ".join([str(cls)] + coords))
+#         # 덮어쓰기
+#         with open(txt_path, 'w') as f:
+#             f.write("\n".join(lines))
+#         print(f"✅  Fixed labels in {txt_path}")
