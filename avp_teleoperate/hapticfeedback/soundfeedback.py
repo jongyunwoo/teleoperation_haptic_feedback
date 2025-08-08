@@ -37,11 +37,18 @@ class StereoSoundFeedbackManager:
 Hand_Classes = {6, 7}
      
 class ObjectDepthSameSound:
-    def __init__(self, depth, masks, align_sound_path='/home/scilab/Documents/teleoperation/avp_teleoperate/hapticfeedback/sounddata/beep-125033.mp3'):
+    def __init__(self, depth, masks, align_sound_path='/home/scilab/Documents/teleoperation/avp_teleoperate/hapticfeedback/sounddata/beep-125033.mp3',
+                 k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15):
         self.depth = depth
         self.masks = masks
-        self.align_sound_path = AudioSegment.from_file(align_sound_path)
-        
+        self.k = k
+        self.tol = tolerance_mm
+        self.release = release_mm
+        self.cooldown = cooldown_s
+
+        self.align_sound = AudioSegment.from_file(align_sound_path)
+        self._last_play_t = 0.0
+        self._aligned_pairs = set() 
     def robust_depth_at(self, cx, cy):
         h, w = self.depth.shape
         k = self.k
