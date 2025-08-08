@@ -359,31 +359,119 @@ class ImageClient:
                     wrist_height, wrist_width = wrist_image.shape[:2]
                     resized_image = cv2.resize(current_image, (width, height))
                     wrist_resized_image = cv2.resize(wrist_image, (wrist_width, wrist_height))
-                    if self.model is None:
-                        print('!!!!!!!!!!!')
-                        # tactile_sensor = self.dual_hand_touch_array
-                        # left_tactile_sensor = tactile_sensor[:1062]
-                        # right_tactile_sensor = tactile_sensor[-1062:]
-                        # current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
-                        cv2.imshow('Image Client Stream', wrist_image)
-                        cv2.waitKey(1)
-                        self._lazy_load_model()
+                    # if self.model is None:
+                    #     print('[Error] Yolo model is not exist.')
+                    #     # tactile_sensor = self.dual_hand_touch_array
+                    #     # left_tactile_sensor = tactile_sensor[:1062]
+                    #     # right_tactile_sensor = tactile_sensor[-1062:]
+                    #     # current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
+                    #     cv2.imshow('Image Client Stream', wrist_image)
+                    #     cv2.waitKey(1)
+                    #     self._lazy_load_model()
+                    # else:
+                    #     print('Yolo model exist!')
+
+                    #     # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
+                    #     if result.masks is None:
+                    #         cv2.imshow('Image Client Stream', wrist_resized_image)
+                    #         if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #             self.running = False
+                    #         continue
+                    HAND_CLASSES = (6, 7)  # ← 실제 손 클래스 ID로 수정
+
+                    # 0) DistanceOverlay 준비 (한번만 만들어 재사용 권장)
+                    if not hasattr(self, "dist_util") or self.dist_util is None:
+                        head_int = {"fx": 615, "fy": 615,
+                                    "cx": self.tv_img_shape[1] / 2,
+                                    "cy": self.tv_img_shape[0] / 2}
+                        wrist_int = {"fx": 615, "fy": 615,
+                                     "cx": self.wrist_img_shape[1] / 2,
+                                     "cy": self.wrist_img_shape[0] / 2}
+                        self.dist_util = DistanceOverlay(head_int, wrist_int, np.eye(4),
+                                                         min_dist=0.02, max_dist=0.20)
+                
+                    # 1) wrist 예측 결과로 "손별 최소 거리" 계산 (원본 해상도 기준)
+                    dist_by_cid = {}  # {6: dist_m, 7: dist_m}
+                    if ('wrist_preds' in locals()) and (wrist_preds is not None) and (wrist_preds.masks is not None):
+                        w_masks = wrist_preds.masks.xy
+                        w_cls   = list(map(int, wrist_preds.boxes.cls.tolist()))
+                        robot_w = [(c, m) for m, c in zip(w_masks, w_cls) if c in HAND_CLASSES]
+                        objs_w  = [m for m, c in zip(w_masks, w_cls) if c not in HAND_CLASSES]
+                
+                        for cid, rmask in robot_w:
+                            cr = self.dist_util.compute_mask_centroid(rmask)
+                            if cr is None:
+                                continue
+                            dlist = []
+                            for om in objs_w:
+                                co = self.dist_util.compute_mask_centroid(om)
+                                if co is None:
+                                    continue
+                                d = self.dist_util.compute_object_distance_simple(cr, co, wrist_raw_depth)  # wrist depth 사용
+                                if d is not None:
+                                    dlist.append(d)
+                            if dlist:
+                                dmin = min(dlist)
+                                dist_by_cid[cid] = min(dmin, dist_by_cid.get(cid, float("inf")))
+                
+                    # 2) head 프레임에 "손별 거리 오버레이" 적용 (head 마스크 사용)
+                    head_disp = current_image.copy()
+                    if ('head_preds' in locals()) and (head_preds is not None) and (head_preds.masks is not None):
+                        h_masks = head_preds.masks.xy
+                        h_cls   = list(map(int, head_preds.boxes.cls.tolist()))
+                        head_robot_masks = {cid: [] for cid in HAND_CLASSES}
+                        for m, c in zip(h_masks, h_cls):
+                            if c in HAND_CLASSES:
+                                head_robot_masks[c].append(m)
+                
+                        for cid, dist_m in dist_by_cid.items():
+                            for hmask in head_robot_masks.get(cid, []):
+                                head_disp = self.dist_util.overlay_mask_with_color(head_disp, hmask, dist_m)
+                
+                    # 3) 사운드 피드백 (같은 깊이 객체 쌍이 생기면 1회 재생; 내부 쿨다운/히스테리시스)
+                    if (self.align_sound_path is not None) and ('wrist_preds' in locals()) and (wrist_preds is not None) and (wrist_preds.masks is not None):
+                        try:
+                            w_masks = wrist_preds.masks.xy
+                            w_cls   = list(map(int, wrist_preds.boxes.cls.tolist()))
+                            obj_masks = [m for m, c in zip(w_masks, w_cls) if c not in HAND_CLASSES]
+                
+                            if getattr(self, "_ods", None) is None:
+                                self._ods = ObjectDepthSameSound(
+                                    depth=wrist_raw_depth,
+                                    masks=obj_masks,
+                                    align_sound_path=self.align_sound_path,
+                                    k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15
+                                )
+                            else:
+                                self._ods.depth = wrist_raw_depth
+                                self._ods.masks = obj_masks
+                
+                            _ = self._ods.sound_depth_same_between_objects()
+                        except Exception as e:
+                            print(f"[image_show][ODS] error: {e}")
+                
+                    # 4) wrist 창은 세그만 시각화
+                    if ('wrist_preds' in locals()) and (wrist_preds is not None) and (wrist_preds.masks is not None):
+                        wrist_disp = wrist_preds.plot()
                     else:
-                        print('')
-                        head_preds = self.model.predict(wrist_resized_image, confidence=0.5)
-                        result = head_preds
-
-                        # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
-                        if result.masks is None:
-                            cv2.imshow('Image Client Stream', wrist_resized_image)
-                            if cv2.waitKey(1) & 0xFF == ord('q'):
-                                self.running = False
-                            continue
-
-                        cv2.imshow('Image Client Stream', result.plot())
-                    
+                        wrist_disp = wrist_image.copy()
+                
+                    # 5) 보기 좋게 축소하고 표시
+                    hH, wH = head_disp.shape[:2]
+                    hW, wW = wrist_disp.shape[:2]
+                    head_disp  = cv2.resize(head_disp,  (wH // 2, hH // 2))
+                    wrist_disp = cv2.resize(wrist_disp, (wW // 2, hW // 2))
+                
+                    cv2.imshow('Head (overlay)', head_disp)
+                    cv2.imshow('Wrist (seg)', wrist_disp)
+                
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
+                        
+                    # cv2.imshow('Image Client Stream', result.plot())
+                    
+                    # if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #     self.running = False
 
                 if self._enable_performance_eval:
                     self._update_performance_metrics(timestamp, frame_id, receive_time)
