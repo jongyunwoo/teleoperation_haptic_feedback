@@ -38,17 +38,19 @@ Hand_Classes = {6, 7}
      
 class ObjectDepthSameSound:
     def __init__(self, depth, masks, align_sound_path='/home/scilab/Documents/teleoperation/avp_teleoperate/hapticfeedback/sounddata/beep-125033.mp3',
-                 k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15):
+                 k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15, stop_overlap: bool = False):
         self.depth = depth
         self.masks = masks
         self.k = k
         self.tol = tolerance_mm
         self.release = release_mm
         self.cooldown = cooldown_s
+        self.stop_overlab = stop_overlab
 
         self.align_sound = AudioSegment.from_file(align_sound_path)
         self._last_play_t = 0.0
         self._aligned_pairs = set() 
+    
     def robust_depth_at(self, cx, cy):
         h, w = self.depth.shape
         k = self.k
@@ -59,6 +61,27 @@ class ObjectDepthSameSound:
         if patch.size == 0:
             return np.nan
         return float(np.median(patch))
+    
+    def _play_nonblocking(self, audio: AudioSegment):
+        with self._plock:
+            if self._stop_overlap and self._last_play_obj is not None:
+                try:
+                    if self._last_play_obj.is_playing():
+                        self._last_play_obj.stop()
+                except Exception:
+                    pass
+            self._last_play_obj = sa.play_buffer(
+                audio.raw_data,
+                num_channels=audio.channels,
+                bytes_per_sample=audio.sample_width,
+                sample_rate=audio.frame_rate
+            )
+
+    def _play_once(self):
+        now = time.time()
+        if now - self._last_play_t >= self.cooldown:
+            self._play_nonblocking(self.align_sound)
+            self._last_play_t = now
 
 def sound_depth_same_between_objects(self):
     
@@ -103,10 +126,3 @@ def sound_depth_same_between_objects(self):
         # 3) 사운드 트리거 (여러 페어가 있어도 딱 한 번만)
         if newly_aligned and aligned_pairs:
             self._play_once()
-
-        return {
-            "aligned": bool(aligned_pairs),
-            "pairs": aligned_pairs,
-            "centers": centers
-        }
-        

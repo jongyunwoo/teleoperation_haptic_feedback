@@ -235,7 +235,7 @@ class ImageClient:
                 head_class_id = head_preds.boxes.cls.tolist()
                 
                 wrist_preds = self.model.predict(wrist_image, confidence=0.6)[0]
-                self.wrist_buffer.apped(wrist_preds.masks)
+                self.wrist_buffer.append(wrist_preds.masks)
                 wrist_class_id = wrist_preds.boxes.cls.tolist()
                 
                 if  self.tv_enable_shm:
@@ -314,9 +314,38 @@ class ImageClient:
                         else:
                             np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
                     else:
-                        self.wrist_buffer.append(preds_wrist.masks)
                         np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
-                
+                        
+                        try:
+                            classes_w = list(map(int, preds_wrist[0].boxes.cls.tolist()))
+                            masks_w   = preds_wrist[0].masks.xy  # [np.ndarray(Nx2), ...]
+
+                            # 로봇손 제외하고 "물체"만 남기기 (왼손=4, 오른손=5 가정)
+                            object_masks = [m for m, c in zip(masks_w, classes_w) if c not in (4, 5)]
+
+                            # ODS lazy init (혹은 위 __init__에서 이미 생성해둔 self._ods 사용)
+                            if self._ods is None and self.align_sound_path is not None:
+                                self._ods = ObjectDepthSameSound(
+                                    depth=self.wrist_depth_img_array,
+                                    masks=object_masks,
+                                    align_sound_path=self.align_sound_path,
+                                    k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15
+                                )
+
+                            if self._ods is not None:
+                                # 최신 depth & masks 반영
+                                self._ods.depth = self.wrist_depth_img_array
+                                self._ods.masks = object_masks
+
+                                # 이벤트 트리거 (같은 깊이 쌍이 있으면 내부 쿨다운 고려하여 재생)
+                                res = self._ods.sound_depth_same_between_objects()
+                                # 디버깅 로그 (원하면)
+                                # if res["aligned"]:
+                                #     print("[ODS] aligned pairs:", res["pairs"])
+                        except Exception as e:
+                            print(f"[ODS] runtime error: {e}")
+                                
+                                
                 # if self.tv_depth_enable_shm:
                 #     raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
                 #     np.copyto(self.tv_depth_img_array, raw_depth)
@@ -328,8 +357,8 @@ class ImageClient:
                 if self._image_show:
                     height, width = current_image.shape[:2]
                     wrist_height, wrist_width = wrist_image.shape[:2]
-                    resized_image = cv2.resize(current_image, (width // 2, height // 2))
-                    wrist_resized_image = cv2.resize(wrist_image, (wrist_width // 2, wrist_height // 2))
+                    resized_image = cv2.resize(current_image, (width, height))
+                    wrist_resized_image = cv2.resize(wrist_image, (wrist_width, wrist_height))
                     if self.model is None:
                         print('!!!!!!!!!!!')
                         # tactile_sensor = self.dual_hand_touch_array
@@ -340,7 +369,7 @@ class ImageClient:
                         cv2.waitKey(1)
                         self._lazy_load_model()
                     else:
-                        print('?????????')
+                        print('')
                         head_preds = self.model.predict(wrist_resized_image, confidence=0.5)
                         result = head_preds
 
