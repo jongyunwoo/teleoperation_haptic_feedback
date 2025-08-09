@@ -22,7 +22,7 @@ from typing import Optional, List, Dict
 from bhaptics import better_haptic_player as player
 from bhaptics.better_haptic_player import BhapticsPosition
 
-
+hatics_paused = False
 def init_player(ws_addr: Optional[str] = None, verbose: bool = True) -> None:
     """
     bHaptics Player WebSocket 초기화
@@ -40,7 +40,7 @@ def tactile_to_dotpoints(
     *,
     key: str,                 # "L" 또는 "R" 손 구분
     thresh: float = 50.0,     # 노이즈 컷(이하 값은 0 취급)
-    p_low: float = 5.0,      # 하위 퍼센타일(0%에 대응)
+    p_low: float = 1.0,      # 하위 퍼센타일(0%에 대응)
     p_high: float = 99.0,     # 상위 퍼센타일(100%에 대응)
     alpha: float = 0.2,       # EMA 추적 속도(0.1~0.3 권장)
     min_ref_span: float = 300.0,  # 상하 스케일 최소 간격(너무 붙으면 포화)
@@ -101,6 +101,7 @@ def start_haptics_stream(shared_array,
                          hz: int = 10,
                          duration_ms: int = 100) -> threading.Thread:
 
+    global hatics_paused
     interval = 1.0 / hz
     buf_np = np.frombuffer(shared_array.get_obj()
                            if hasattr(shared_array, "get_obj") else shared_array,
@@ -121,8 +122,12 @@ def start_haptics_stream(shared_array,
     GAMMA = 1.2
 
     def _loop():
+        global haptics_paused
         last_log = 0.0
         while True:
+            if haptics_paused:
+                time.sleep(interval)  # ✅ Grip 중에는 haptics 완전 중단
+                continue
             # 스냅샷
             left  = np.array(buf_np[:1062],  dtype=np.float32, copy=True)
             right = np.array(buf_np[-1062:], dtype=np.float32, copy=True)

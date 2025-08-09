@@ -176,3 +176,23 @@ def submit_path(key, position, path_points, duration_millis):
 def __submit(json_str):
     if ws is not None:
         ws.send(json_str)
+
+def stop(key: str):
+    """
+    특정 Key의 Haptic 재생을 중지
+    """
+    request = {
+        "Stop": [key]
+    }
+    json_str = json.dumps(request)
+    __submit(json_str)
+
+def stop_all():
+    """
+    현재 재생 중인 모든 Haptic을 중지
+    """
+    request = {
+        "StopAll": [{}]
+    }
+    json_str = json.dumps(request)
+    __submit(json_str)

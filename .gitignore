@@ -8,3 +8,6 @@ dataset/
 *.png
 test_vis/
 joint_opt_vis/
+output_folder/
+*.jpg
+yolo/

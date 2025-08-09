@@ -5,12 +5,18 @@ import time
 import struct
 from collections import deque
 from multiprocessing import shared_memory
-import queue
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from hapticfeedback.visfeedback import overlay
+from hapticfeedback.visfeedback import draw_alignment, DistanceOverlay
+from hapticfeedback.soundfeedback import ObjectDepthSameSound
+from collections import deque
+import supervision as sv
 
 # MAX_DEPTH_MM = 4000.0
+buffer_size = 5
+min_classes = 1
+annotator = sv.MaskAnnotator()
+
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None,
@@ -38,16 +44,18 @@ class ImageClient:
         self._image_show = image_show
         self._server_address = server_address
         self._port = port
-        
+        self.tv_buffer = deque()
+        self.wrist_buffer = deque()
         self.model = None #추가
         self._need_load_model = True #추가
-        self.dual_hand_touch_array = dual_hand_touch_array
+        self.dist_util = None
         
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
         # self.tv_depth_img_shape = tv_depth_img_shape
         self.wrist_depth_img_shape = wrist_depth_img_shape
-        
+        self.align_sound_path = "/home/scilab/teleoperation/avp_teleoperate/hapticfeedback/sounddata/bell-notification-337658.mp3" 
+        self._ods = None 
         self.tv_enable_shm = False
         if self.tv_img_shape is not None and tv_img_shm_name is not None:
             self.tv_image_shm = shared_memory.SharedMemory(name=tv_img_shm_name)
@@ -81,11 +89,12 @@ class ImageClient:
     def _lazy_load_model(self):
         if not self._need_load_model:
             return
-        print("[ImageClient] Loading YOLOv8 model …")
-        from autodistill_yolov8 import YOLOv8
-        self.model = YOLOv8("/home/scilab/teleoperation/yolo11_best.pt")
+        print("[ImageClient] Loading YOLO11 segmentation model …")
+        from ultralytics import YOLO
+        self.model = YOLO("/home/scilab/teleoperation/best.pt")
         self._need_load_model = False
-        print("[ImageClient] YOLOv8 ready (cuda)")
+        print("[ImageClient] YOLO11n-seg ready (cuda)")
+
     #===================segmentation model load===================#
     def _init_performance_metrics(self):
         self._frame_count = 0  # Total frames received
@@ -163,13 +172,16 @@ class ImageClient:
         self._socket = self._context.socket(zmq.SUB)
         self._socket.connect(f"tcp://{self._server_address}:{self._port}")
         self._socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        cv2.namedWindow('Image Client Stream', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('Image Client Stream', 960, 720)
+
         print("\nImage client has started, waiting to receive data...")
         try:
             while self.running:
                 # Receive message
                 message = self._socket.recv_multipart()
                 receive_time = time.time()
-
+            
                 if self._enable_performance_eval:
                     header_size = struct.calcsize('dI')
                     try:
@@ -184,7 +196,6 @@ class ImageClient:
                     # No header, entire message is image data
                     #jpg_bytes, depth_bytes, wrist_bytes = message
                     jpg_bytes, wrist_jpg_bytes, wrist_depth_bytes = message
-                
                 #  Decode image
                 np_img = np.frombuffer(jpg_bytes, dtype=np.uint8)
                 wrist_np_img = np.frombuffer(wrist_jpg_bytes, dtype=np.uint8)
@@ -192,6 +203,10 @@ class ImageClient:
                 wrist_raw_depth = np.frombuffer(wrist_depth_bytes, dtype=np.uint16) if wrist_depth_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
                 wrist_image = cv2.imdecode(wrist_np_img, cv2.IMREAD_COLOR)
+                if wrist_raw_depth.ndim == 1:
+                    wrist_raw_depth = wrist_raw_depth.reshape(wrist_image.shape[0], wrist_image.shape[1])
+                
+                
                 if current_image is None:
                     print("[Image Client] Failed to decode Image.")
                     continue
@@ -208,61 +223,247 @@ class ImageClient:
                    print("[Image Client] Failed to decode Wrist Depth Image")
                    continue
                 
-                if  self.tv_enable_shm:
-                    # self._lazy_load_model()
-                    # preds = self.model.predict(current_image,
-                    #                            confidence=0.5)   # Results object
-                    # if preds[0].masks is None:
-                    #     print("[Image Client] No masks found in predictions.")
-                    #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
-                    #     continue
-                    # tactile_sensor = self.dual_hand_touch_array
-                    # left_tactile_sensor = tactile_sensor[:1062]
-                    # right_tactile_sensor = tactile_sensor[-1062:]
-                    # current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
-                    np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
+                self._lazy_load_model()
+                imgs = [current_image, wrist_image]  # 두 장 크기를 같게 맞추면 더 좋아요
+                results = self.model.predict(imgs, imgsz=640, device=0, half=True, verbose=False)[0:2]
+                head_preds, wrist_preds = results
+                self.tv_buffer.append(head_preds.masks) 
+                head_class_id = head_preds.boxes.cls.tolist()
+                self.wrist_buffer.append(wrist_preds.masks)
+                wrist_class_id = wrist_preds.boxes.cls.tolist()  
+
+                # if  self.tv_enable_shm:
+                #     print(5)
+                #     # self._lazy_load_model()
+                #     # preds = self.model.predict(current_image,
+                #     #                            confidence=0.5)   # Results object
+                #     # if preds[0].masks is None:
+                #     #     print("[Image Client] No masks found in predictions.")
+                #     #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
+                #     #     continue
+                #     # tactile_sensor = self.dual_hand_touch_array
+                #     # left_tactile_sensor = tactile_sensor[:1062]
+                #     # right_tactile_sensor = tactile_sensor[-1062:]
+                #     # current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
+                #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
+                    
+                #     if head_preds.masks is None or len(set(head_class_id)) < min_classes:
+                #         print("[Image Client] No masks found in predictions.")
+                #         if self.tv_buffer:
+                #             fb_mask = self.tv_buffer[-1] 
+                #             current_image = draw_alignment(current_image, fb_mask, head_class_id)    
+                #             np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
+                #         else:
+                #             np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
+                    
+                #     else:
+                #         self.tv_buffer.append(head_preds.masks)
+                #         current_image = draw_alignment(current_image, head_preds.masks, head_class_id)
+                #         depth = wrist_raw_depth  # uint16 mm
+
+                #         robot_masks_w = []
+                #         object_masks_w = []
+                #         for m, cid in zip(wrist_preds.masks.xy, wrist_class_id):
+                #             if cid in [6,7]:         # 왼/오른손 클래스
+                #                 robot_masks_w.append(m)
+                #             else:
+                #                 object_masks_w.append(m)
+                                
+                #         head_robot_masks = {6: [], 7: []}
+                #         for m, cid in zip(head_preds.masks.xy, head_class_id):
+                #             if cid in (6, 7):
+                #                 head_robot_masks[cid].append(m)
+
+                #         head_int = {"fx":615,"fy":615,
+                #                     "cx":self.tv_img_shape[1]/2,
+                #                     "cy":self.tv_img_shape[0]/2}
+                #         wrist_int= {"fx":615,"fy":615,
+                #                     "cx":self.wrist_img_shape[1]/2,
+                #                     "cy":self.wrist_img_shape[0]/2}
+                #         T_hw = np.eye(4)
+                #         dist_util = DistanceOverlay(head_int, wrist_int, T_hw,
+                #                                     min_dist=0.02, max_dist=0.20)
+
+                #         dist_by_cid = {}  
+                #         for cid, rmask_w in robot_masks_w:
+                #             c_r = dist_util.compute_mask_centroid(rmask_w)
+                #             if c_r is None:
+                #                 continue
+                            
+                #             dists = []
+                #             for omask_w in object_masks_w:
+                #                 c_o = dist_util.compute_mask_centroid(omask_w)
+                #                 if c_o is None:
+                #                     continue
+                #                 d = dist_util.compute_object_distance_simple(c_r, c_o, depth)  # wrist depth 사용
+                #                 if d is not None:
+                #                     dists.append(d)
+
+                #             if dists:
+                #                 dmin = min(dists)
+                #                 dist_by_cid[cid] = min(dmin, dist_by_cid.get(cid, float("inf")))
+
+                #             for cid, dist_m in dist_by_cid.items():
+                #                 for hmask in head_robot_masks.get(cid, []):
+                #                     current_image = dist_util.overlay_mask_with_color(current_image, hmask, dist_m)
+
+                #             np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
+
+                # if self.wrist_enable_shm:
+                #     self._lazy_load_model()
+                #     preds_wrist = self.model.predict(wrist_image)[0]
+                #     ods = ObjectDepthSameSound(depth = wrist_raw_depth, masks=preds_wrist.masks,
+                #                                k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15)
+                #     if preds_wrist.masks is None or len(set(preds_wrist.boxes.cls.tolist())) < min_classes:
+                #         print("[Image Client] No masks found in predictions.")
+                #         if self.wrist_buffer:
+                #             wrist_fb_mask = self.wrist_buffer[-1]
+                #             np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
+                #         else:
+                #             np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
+                #     else:
+                #         np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
+                        
+                #         try:
+                #             classes_w = list(map(int, preds_wrist.boxes.cls.tolist()))
+                #             masks_w   = preds_wrist.masks.xy  # [np.ndarray(Nx2), ...]
+
+                #             # 로봇손 제외하고 "물체"만 남기기 (왼손=4, 오른손=5 가정)
+                #             object_masks = [m for m, c in zip(masks_w, classes_w) if c not in (4, 5)]
+
+                #             # ODS lazy init (혹은 위 __init__에서 이미 생성해둔 self._ods 사용)
+                #             if self._ods is None and self.align_sound_path is not None:
+                #                 self._ods = ObjectDepthSameSound(
+                #                     depth=self.wrist_depth_img_array,
+                #                     masks=object_masks,
+                #                     align_sound_path=self.align_sound_path,
+                #                     k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15
+                #                 )
+
+                #             if self._ods is not None:
+                #                 # 최신 depth & masks 반영
+                #                 self._ods.depth = self.wrist_depth_img_array
+                #                 self._ods.masks = object_masks
+
+                #                 # 이벤트 트리거 (같은 깊이 쌍이 있으면 내부 쿨다운 고려하여 재생)
+                #                 res = self._ods.sound_depth_same_between_objects()
+                #                 # 디버깅 로그 (원하면)
+                #                 # if res["aligned"]:
+                #                 #     print("[ODS] aligned pairs:", res["pairs"])
+                #         except Exception as e:
+                #             print(f"[ODS] runtime error: {e}")
+                                
+                                
+                # # if self.tv_depth_enable_shm:
+                # #     raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
+                # #     np.copyto(self.tv_depth_img_array, raw_depth)
                 
-                if self.wrist_enable_shm:
-                    np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
-                
-                # if self.tv_depth_enable_shm:
-                #     raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
-                #     np.copyto(self.tv_depth_img_array, raw_depth)
-                
-                if self.wrist_depth_enable_shm:
-                    wrist_raw_depth = wrist_raw_depth.reshape(self.wrist_depth_img_shape[0], self.wrist_depth_img_shape[1])
-                    np.copyto(self.wrist_depth_img_array, wrist_raw_depth)
-            
+                # if self.wrist_depth_enable_shm:
+                #     wrist_raw_depth = wrist_raw_depth.reshape(self.wrist_depth_img_shape[0], self.wrist_depth_img_shape[1])
+#            
                 if self._image_show:
-                    height, width = current_image.shape[:2]
-                    wrist_height, wrist_width = wrist_image.shape[:2]
-                    resized_image = cv2.resize(current_image, (width // 2, height // 2))
-                    wrist_resized_image = cv2.resize(wrist_image, (wrist_width // 2, wrist_height // 2))
-                    # if self.model is None:
-                    # print('!!!!!!!!!!!')
-                        # tactile_sensor = self.dual_hand_touch_array
-                        # left_tactile_sensor = tactile_sensor[:1062]
-                        # right_tactile_sensor = tactile_sensor[-1062:]
-                        # current_image = overlay(resized_image, left_tactile_sensor, right_tactile_sensor)
-                    cv2.imshow('Image Client Stream', wrist_image)
-                    # cv2.waitKey(1)
-                        # self._lazy_load_model()
-                    # else:
-                    #     print('?????????')
-                    #     preds = self.model.predict(wrist_resized_image, confidence=0.5)
-                    #     result = preds[0]
+                    # height, width = current_image.shape[:2]
+                    # wrist_height, wrist_width = wrist_image.shape[:2]
+                    # resized_image = cv2.resize(current_image, (width, height))
+                    # wrist_resized_image = cv2.resize(wrist_image, (wrist_width, wrist_height))
+                    # cv2.imshow('Head Camera', head_preds.plot())
+                    # cv2.imshow('Wrist Camera', wrist_preds.plot())
+                    # if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #     self.running = False
+                    HAND_CLASSES = (4, 5)
 
+                    # DistanceOverlay init once (use runtime frame sizes)
+                    if self.dist_util is None and wrist_raw_depth is not None and wrist_raw_depth.ndim == 2:
+                        hH, wH = current_image.shape[:2]
+                        hW, wW = wrist_image.shape[:2]
+                        head_int = {"fx": 615, "fy": 615, "cx": wH / 2.0, "cy": hH / 2.0}
+                        wrist_int = {"fx": 615, "fy": 615, "cx": wW / 2.0, "cy": hW / 2.0}
+                        self.dist_util = DistanceOverlay(head_int, wrist_int, np.eye(4),
+                                                         min_dist=0.02, max_dist=0.20)
 
-                    #     # segmentation 마스크가 없으면 그냥 보여주고 다음 프레임으로
-                    #     if result.masks is None:
-                    #         cv2.imshow('Image Client Stream', wrist_resized_image)
-                    #         if cv2.waitKey(1) & 0xFF == ord('q'):
-                    #             self.running = False
-                    #         continue
+                    # 1) wrist side: compute min distance by hand class (if depth 2D available)
+                    dist_by_cid = {}
+                    if (self.dist_util is not None and
+                        wrist_preds is not None and wrist_preds.masks is not None and
+                        wrist_raw_depth is not None and wrist_raw_depth.ndim == 2):
 
-                    #     cv2.imshow('Image Client Stream', result.plot())
+                        w_masks = wrist_preds.masks.xy
+                        w_cls = list(map(int, wrist_class_id))
+                        robot_w = [(c, m) for m, c in zip(w_masks, w_cls) if c in HAND_CLASSES]
+                        objs_w = [m for m, c in zip(w_masks, w_cls) if c not in HAND_CLASSES]
+                        print(f"[viz] wrist hands: {len(robot_w)}, wrist objects: {len(objs_w)}")
+
+                        for cid, rmask in robot_w:
+                            cr = self.dist_util.compute_mask_centroid(rmask)
+                            if cr is None:
+                                continue
+                            dlist = []
+                            for om in objs_w:
+                                co = self.dist_util.compute_mask_centroid(om)
+                                if co is None:
+                                    continue
+                                d = self.dist_util.compute_object_distance_simple(cr, co, wrist_raw_depth)
+                                if d is not None:
+                                    dlist.append(d)
+                            if dlist:
+                                dmin = min(dlist)
+                                dist_by_cid[cid] = min(dmin, dist_by_cid.get(cid, float("inf")))
+
+                    # 2) head overlay (colorize hands by min distance)
+                    head_disp = current_image.copy()
+                    if (self.dist_util is not None and
+                        head_preds is not None and head_preds.masks is not None and dist_by_cid):
+
+                        h_masks = head_preds.masks.xy
+                        h_cls = list(map(int, head_class_id))
+                        head_robot_masks = {cid: [] for cid in HAND_CLASSES}
+                        for m, c in zip(h_masks, h_cls):
+                            if c in HAND_CLASSES:
+                                head_robot_masks[c].append(m)
+
+                        for cid, dist_m in dist_by_cid.items():
+                            for hmask in head_robot_masks.get(cid, []):
+                                head_disp = self.dist_util.overlay_mask_with_color(head_disp, hmask, dist_m)
+
+                    # 3) sound feedback
+                    if wrist_preds is not None and wrist_preds.masks is not None and wrist_raw_depth is not None:
+                        try:
+                            w_masks = wrist_preds.masks.xy
+                            w_cls = list(map(int, wrist_class_id))
+                            obj_masks = [m for m, c in zip(w_masks, w_cls) if c not in HAND_CLASSES]
+                            if self._ods is None:
+                                self._ods = ObjectDepthSameSound(
+                                    depth=wrist_raw_depth,
+                                    masks=obj_masks,
+                                    align_sound_path=self.align_sound_path,
+                                    k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15
+                                )
+                            else:
+                                self._ods.depth = wrist_raw_depth
+                                self._ods.masks = obj_masks
+                            _ = self._ods.sound_depth_same_between_objects()
+                        except Exception as e:
+                            print(f"[image_show][ODS] error: {e}")
+
+                    # 4) wrist display (seg plot if masks exist)
+                    if wrist_preds is not None and wrist_preds.masks is not None:
+                        wrist_disp = wrist_preds.plot()
+                    else:
+                        wrist_disp = wrist_image.copy()
+                    
+                    # 5) show
+                    hH, wH = head_disp.shape[:2]
+                    hW, wW = wrist_disp.shape[:2]
+                    cv2.imshow('Head (overlay)', cv2.resize(head_disp, (wH, hH)))
+                    cv2.imshow('Wrist (seg)', cv2.resize(wrist_disp, (wW, hW)))
+
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
+                        
+                    # cv2.imshow('Image Client Stream', result.plot())
+                    
+                    # if cv2.waitKey(1) & 0xFF == ord('q'):
+                    #     self.running = False
 
                 if self._enable_performance_eval:
                     self._update_performance_metrics(timestamp, frame_id, receive_time)
