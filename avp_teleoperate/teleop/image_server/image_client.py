@@ -216,10 +216,10 @@ class ImageClient:
                     #     print("[Image Client] No masks found in predictions.")
                     #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
                     #     continue
-                    tactile_sensor = self.dual_hand_touch_array
-                    left_tactile_sensor = tactile_sensor[:1062]
-                    right_tactile_sensor = tactile_sensor[-1062:]
-                    current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
+                    # tactile_sensor = self.dual_hand_touch_array
+                    # left_tactile_sensor = tactile_sensor[:1062]
+                    # right_tactile_sensor = tactile_sensor[-1062:]
+                    # current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
                     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
                 
                 if self.wrist_enable_shm:
