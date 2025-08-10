@@ -7,7 +7,7 @@ from pydub import AudioSegment
 from pydub.playback import play
 
 # 손 클래스 (필요하면 밖에서 재사용)
-HAND_CLASSES = {4, 5}
+HAND_CLASSES = {7, 8}
 
 class StereoSoundFeedbackManager:
     def __init__(self, grip_sound_path):
@@ -30,21 +30,16 @@ class StereoSoundFeedbackManager:
 
 
 class ObjectDepthSameSound:
-    """
-    - depth: HxW uint16 (mm)
-    - masks: [np.ndarray(Nx2), ...]  각 객체의 폴리곤(픽셀 좌표)
-    """
-    def __init__(
-        self,
-        depth,
-        masks,
-        align_sound_path='/home/scilab/teleoperation/avp_teleoperate/hapticfeedback/sounddata/beep-125033.mp3',
-        k=2,
-        tolerance_mm=10,
-        cooldown_s=0.5,
-        release_mm=15,
-        stop_overlap: bool = False
-    ):
+    def __init__(self, depth, masks,
+                 align_sound_path='/home/scilab/teleoperation/avp_teleoperate/hapticfeedback/sounddata/beep-125033.mp3',
+                 k=4, tolerance_mm=60, cooldown_s=0.8, release_mm=60,
+                 stop_overlap=False,
+                 dwell_s=0.5,        # ⬅️ 새로 추가: 이 시간 이상 연속 정렬되면 재생
+                 key_grid_px=60,       # ⬅️ 새로 추가: 센트로이드 격자 크기(픽셀)
+                 stale_s = 10.0,
+                 suppress_s = 15.0,
+                 outside_tol_clear_s = 1.2
+                 ):
         self.depth = depth
         self.masks = masks
         self.k = k
@@ -53,26 +48,31 @@ class ObjectDepthSameSound:
         self.cooldown = cooldown_s
         self._stop_overlap = stop_overlap
 
+        self.dwell_s = dwell_s
+        self.key_grid = int(key_grid_px)
+        self.stale_s = float(stale_s)
+        self.suppress_s = float(suppress_s)
+        self.outside_tol_clear_s = float(outside_tol_clear_s)
+        self._pair_state = {}
         self.align_sound = AudioSegment.from_file(align_sound_path)
-
-        # 내부 상태
         self._last_play_t = 0.0
-        self._aligned_pairs = set()
+
+        # 인덱스 대신 공간기반 키의 상태를 저장
+        # key -> {"first_in_tol": t, "last_seen": t, "beeped_at": t or None}
+        self._pair_state = {}
+
         self._plock = threading.Lock()
         self._last_play_obj = None
 
     @staticmethod
     def _centroid_of_polygon(poly: np.ndarray):
-        """poly: (N,2) float/int -> (cx,cy) 또는 None"""
         cnt = np.asarray(poly, dtype=np.int32)
         if cnt.ndim != 2 or cnt.shape[0] < 3:
             return None
         M = cv2.moments(cnt)
         if M["m00"] == 0:
             return None
-        cx = int(M["m10"] / M["m00"])
-        cy = int(M["m01"] / M["m00"])
-        return (cx, cy)
+        return (int(M["m10"]/M["m00"]), int(M["m01"]/M["m00"]))
 
     def robust_depth_at(self, cx, cy):
         h, w = self.depth.shape
@@ -80,8 +80,7 @@ class ObjectDepthSameSound:
         x0, x1 = max(0, cx - k), min(w, cx + k + 1)
         y0, y1 = max(0, cy - k), min(h, cy + k + 1)
         patch = self.depth[y0:y1, x0:x1].astype(float)
-        # 유효(depth>0) 값만
-        patch = patch[np.isfinite(patch) & (patch > 0)]
+        patch = patch[(patch > 0)]  # 필요하면 (patch>min_mm)&(patch<max_mm) 추가
         if patch.size == 0:
             return np.nan
         return float(np.median(patch))
@@ -107,17 +106,21 @@ class ObjectDepthSameSound:
             self._play_nonblocking(self.align_sound)
             self._last_play_t = now
 
+    def _pair_key_from_centers(self, ci, cj):
+        # 센트로이드(픽셀)를 격자에 맞춰 양자화해서 키 생성 (프레임 간 인덱스 변동에 강함)
+        q = self.key_grid
+        def qpt(p):
+            return (int(round(p[0]/q)), int(round(p[1]/q)))
+        a, b = qpt(ci), qpt(cj)
+        return tuple(sorted((a, b)))  # 순서 무관
+
     def sound_depth_same_between_objects(self):
-        """
-        마스크 쌍 중 깊이가 tol(mm) 이내로 같은 쌍이 새로 생기면 사운드 1회 재생.
-        release(mm) 이상 벌어지면 쌍 해제.
-        """
         if self.depth is None or not isinstance(self.depth, np.ndarray) or self.depth.ndim != 2:
             return {"aligned": False, "pairs": []}
         if self.masks is None or len(self.masks) == 0:
             return {"aligned": False, "pairs": []}
 
-        # 1) 각 객체 중심 및 robust depth(mm)
+        # 1) 각 객체 중심 및 깊이(mm)
         centers = []
         for poly in self.masks:
             c = self._centroid_of_polygon(poly)
@@ -127,33 +130,49 @@ class ObjectDepthSameSound:
             d_mm = self.robust_depth_at(c[0], c[1])
             centers.append((c[0], c[1], d_mm))
 
-        # 2) 모든 쌍 비교
+        now = time.time()
         aligned_pairs = []
         newly_aligned = False
+
+        # 2) 모든 쌍 비교
         n = len(self.masks)
         for i in range(n):
             ci = centers[i]
             if not np.isfinite(ci[2]):
                 continue
-            for j in range(i + 1, n):
+            for j in range(i+1, n):
                 cj = centers[j]
                 if not np.isfinite(cj[2]):
                     continue
 
                 diff = abs(ci[2] - cj[2])  # mm
-                key = (min(i, j), max(i, j))
-
+                key = self._pair_key_from_centers((ci[0], ci[1]), (cj[0], cj[1]))
+                state = self._pair_state.get(key)
                 if diff <= self.tol:
                     aligned_pairs.append((i, j, ci[2], cj[2], diff))
-                    if key not in self._aligned_pairs:
-                        newly_aligned = True
-                        self._aligned_pairs.add(key)
+                    if state is None:
+                        # 처음 tol 안으로 들어옴: 타이머 시작
+                        self._pair_state[key] = {"first_in_tol": now, "last_seen": now, "beeped_at": None, "out_tol_sinece": None}
+                    else:
+                        state["last_seen"] = now
+                        state["out_tol_since"] = None
+                        # dwell 시간 충족 + 글로발 쿨다운 + 해당 key 최근 재생 체크
+                        if ((state["beeped_at"] is None) or (now - state["beeped_at"] >= self.suppress_s))\
+                            and (now - state["first_in_tol"] >= self.dwell_s):
+                            newly_aligned = True
+                            self._play_once()
+                            state["beeped_at"] = now
                 else:
-                    if key in self._aligned_pairs and diff >= self.release:
-                        self._aligned_pairs.remove(key)
+                    if state is not None:
+                        state["last_seen"] = now
+                        if state.get("out_tol_since") is None:
+                            state["out_tol_since"] = now
+                        if now - state["out_tol_since"] >= self.outside_tol_clear_s:
+                            self._pair_state.pop(key, None)
 
-        # 3) 사운드 트리거
-        if newly_aligned and aligned_pairs:
-            self._play_once()
+        # 3) 오래 안 보인 키 정리(유령 상태 방지)
+        stale_keys = [k for k, v in self._pair_state.items() if now - v["last_seen"] > 2.0]
+        for k in stale_keys:
+            self._pair_state.pop(k, None)
 
         return {"aligned": newly_aligned, "pairs": aligned_pairs}

@@ -7,16 +7,22 @@ from collections import deque
 from multiprocessing import shared_memory
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from hapticfeedback.visfeedback import draw_alignment, DistanceOverlay
+from hapticfeedback.visfeedback import draw_alignment, HandObjectDepthAssessor
 from hapticfeedback.soundfeedback import ObjectDepthSameSound
 from collections import deque
 import supervision as sv
 
 # MAX_DEPTH_MM = 4000.0
+max_len = 3
 buffer_size = 5
 min_classes = 1
 annotator = sv.MaskAnnotator()
-
+def _poly_iou(a, b, shape):
+    maskA = np.zeros(shape, np.uint8); cv2.fillPoly(maskA, [a.astype(np.int32)], 1)
+    maskB = np.zeros(shape, np.uint8); cv2.fillPoly(maskB, [b.astype(np.int32)], 1)
+    inter = np.logical_and(maskA, maskB).sum()
+    union = np.logical_or(maskA, maskB).sum()
+    return float(inter) / float(union + 1e-6)
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None,
@@ -44,12 +50,17 @@ class ImageClient:
         self._image_show = image_show
         self._server_address = server_address
         self._port = port
-        self.tv_buffer = deque()
-        self.wrist_buffer = deque()
+        self.tv_buffer = deque(maxlen=max_len)
+        self.wrist_buffer = deque(maxlen=max_len)
         self.model = None #추가
         self._need_load_model = True #추가
         self.dist_util = None
-        
+        self._dist_hist = {}          # {hand_cid: deque([...])}
+        self._last_target_poly = {}   # {hand_cid: np.ndarray(Nx2)}  # 지난 프레임 타깃 물체 폴리곤
+        self._iou_thresh = 0.25 
+        # ImageClient.__init__ 안에
+        self.depth_assessor = HandObjectDepthAssessor(left_id=7, right_id=8, k=2, tol_mm=15, hysteresis_mm=10)
+
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
         # self.tv_depth_img_shape = tv_depth_img_shape
@@ -84,14 +95,22 @@ class ImageClient:
         self._enable_performance_eval = Unit_Test
         if self._enable_performance_eval:
             self._init_performance_metrics()
-            
+          
+          
+    def _poly_iou(a, b, shape):
+        maskA = np.zeros(shape, np.uint8); cv2.fillPoly(maskA, [a.astype(np.int32)], 1)
+        maskB = np.zeros(shape, np.uint8); cv2.fillPoly(maskB, [b.astype(np.int32)], 1)
+        inter = np.logical_and(maskA, maskB).sum()
+        union = np.logical_or(maskA, maskB).sum()
+        return float(inter) / float(union + 1e-6)
+    
     #===================segmentation model load===================#
     def _lazy_load_model(self):
         if not self._need_load_model:
             return
         print("[ImageClient] Loading YOLO11 segmentation model …")
         from ultralytics import YOLO
-        self.model = YOLO("/home/scilab/teleoperation/best.pt")
+        self.model = YOLO("/home/scilab/teleoperation/plastic_cup.pt")
         self._need_load_model = False
         print("[ImageClient] YOLO11n-seg ready (cuda)")
 
@@ -227,9 +246,11 @@ class ImageClient:
                 imgs = [current_image, wrist_image]  # 두 장 크기를 같게 맞추면 더 좋아요
                 results = self.model.predict(imgs, imgsz=640, device=0, half=True, verbose=False)[0:2]
                 head_preds, wrist_preds = results
-                self.tv_buffer.append(head_preds.masks) 
+                if head_preds.masks is not None:
+                    self.tv_buffer.append([m.copy() for m in head_preds.masks.xy])
                 head_class_id = head_preds.boxes.cls.tolist()
-                self.wrist_buffer.append(wrist_preds.masks)
+                if wrist_preds.masks is not None:
+                        self.wrist_buffer.append([m.copy() for m in wrist_preds.masks.xy])
                 wrist_class_id = wrist_preds.boxes.cls.tolist()  
 
                 # if  self.tv_enable_shm:
@@ -370,77 +391,160 @@ class ImageClient:
                     # cv2.imshow('Wrist Camera', wrist_preds.plot())
                     # if cv2.waitKey(1) & 0xFF == ord('q'):
                     #     self.running = False
-                    HAND_CLASSES = (4, 5)
+                    HAND_CLASSES = (7, 8)
+                    BUCKET_OBJECT = 100
 
-                    # DistanceOverlay init once (use runtime frame sizes)
-                    if self.dist_util is None and wrist_raw_depth is not None and wrist_raw_depth.ndim == 2:
-                        hH, wH = current_image.shape[:2]
-                        hW, wW = wrist_image.shape[:2]
-                        head_int = {"fx": 615, "fy": 615, "cx": wH / 2.0, "cy": hH / 2.0}
-                        wrist_int = {"fx": 615, "fy": 615, "cx": wW / 2.0, "cy": hW / 2.0}
-                        self.dist_util = DistanceOverlay(head_int, wrist_int, np.eye(4),
-                                                         min_dist=0.02, max_dist=0.20)
+                    # # DistanceOverlay init once (use runtime frame sizes)
+                    # if self.dist_util is None and wrist_raw_depth is not None and wrist_raw_depth.ndim == 2:
+                    #     hH, wH = current_image.shape[:2]
+                    #     hW, wW = wrist_image.shape[:2]
+                    #     head_int = {"fx": 605, "fy": 606, "cx": wH / 2.0, "cy": hH / 2.0}
+                    #     wrist_int = {"fx": 611, "fy": 612, "cx": wW / 2.0, "cy": hW / 2.0}
+                    #     self.dist_util = DistanceOverlay(head_int, wrist_int, np.eye(4),
+                    #                                      min_dist=0.00, max_dist=1.0)
 
-                    # 1) wrist side: compute min distance by hand class (if depth 2D available)
-                    dist_by_cid = {}
-                    if (self.dist_util is not None and
-                        wrist_preds is not None and wrist_preds.masks is not None and
-                        wrist_raw_depth is not None and wrist_raw_depth.ndim == 2):
+                    # # 1) wrist side: compute min distance by hand class (if depth 2D available)
+                    # dist_by_cid = {}
+                    # if (self.dist_util is not None and
+                    #     wrist_preds is not None and wrist_preds.masks is not None and
+                    #     wrist_raw_depth is not None and wrist_raw_depth.ndim == 2):
 
-                        w_masks = wrist_preds.masks.xy
-                        w_cls = list(map(int, wrist_class_id))
-                        robot_w = [(c, m) for m, c in zip(w_masks, w_cls) if c in HAND_CLASSES]
-                        objs_w = [m for m, c in zip(w_masks, w_cls) if c not in HAND_CLASSES]
-                        print(f"[viz] wrist hands: {len(robot_w)}, wrist objects: {len(objs_w)}")
+                    #     w_masks = wrist_preds.masks.xy
+                    #     w_cls = list(map(int, wrist_class_id))
+                    #     robot_w = [(c, m) for m, c in zip(w_masks, w_cls) if c in HAND_CLASSES]
+                    #     objs_w = [m for m, c in zip(w_masks, w_cls) if c not in HAND_CLASSES]
+                    #     # print(f"[viz] wrist hands: {len(robot_w)}, wrist objects: {len(objs_w)}")
 
-                        for cid, rmask in robot_w:
-                            cr = self.dist_util.compute_mask_centroid(rmask)
-                            if cr is None:
-                                continue
-                            dlist = []
-                            for om in objs_w:
-                                co = self.dist_util.compute_mask_centroid(om)
-                                if co is None:
-                                    continue
-                                d = self.dist_util.compute_object_distance_simple(cr, co, wrist_raw_depth)
-                                if d is not None:
-                                    dlist.append(d)
-                            if dlist:
-                                dmin = min(dlist)
-                                dist_by_cid[cid] = min(dmin, dist_by_cid.get(cid, float("inf")))
+                    #     self.dist_util.k = 5
+                    #     hWrist, wWrist = wrist_image.shape[:2]
 
-                    # 2) head overlay (colorize hands by min distance)
-                    head_disp = current_image.copy()
-                    if (self.dist_util is not None and
-                        head_preds is not None and head_preds.masks is not None and dist_by_cid):
+                    #     for cid, rmask in robot_w:
+                    #         # 1) 지난 프레임 타깃 유지 시도
+                    #         target = None
+                    #         if cid in self._last_target_poly:
+                    #             prev_poly = self._last_target_poly[cid]
+                    #             best_iou, best_poly = 0.0, None
+                    #             for om in objs_w:
+                    #                 iou = _poly_iou(np.asarray(prev_poly), np.asarray(om), (hWrist, wWrist))
+                    #                 if iou > best_iou:
+                    #                     best_iou, best_poly = iou, om
+                    #             if best_iou >= self._iou_thresh:
+                    #                 target = best_poly
 
-                        h_masks = head_preds.masks.xy
-                        h_cls = list(map(int, head_class_id))
-                        head_robot_masks = {cid: [] for cid in HAND_CLASSES}
-                        for m, c in zip(h_masks, h_cls):
-                            if c in HAND_CLASSES:
-                                head_robot_masks[c].append(m)
+                    #         # 2) 못 찾았으면 이번 프레임 ‘가장 가까운’ 물체 선택
+                    #         if target is None:
+                    #             cr = self.dist_util.compute_mask_centroid(rmask)
+                    #             if cr is None:
+                    #                 continue
+                    #             best_d, best_poly = float("inf"), None
+                    #             for om in objs_w:
+                    #                 co = self.dist_util.compute_mask_centroid(om)
+                    #                 if co is None: 
+                    #                     continue
+                    #                 d = self.dist_util.compute_object_distance_simple(cr, co, wrist_raw_depth)
+                    #                 if d is not None and d < best_d:
+                    #                     best_d, best_poly = d, om
+                    #             target = best_poly
 
-                        for cid, dist_m in dist_by_cid.items():
-                            for hmask in head_robot_masks.get(cid, []):
-                                head_disp = self.dist_util.overlay_mask_with_color(head_disp, hmask, dist_m)
+                    #         if target is None:
+                    #             continue
+                            
+                    #         # 3) 선택된 타깃으로 거리 계산(밴딩으로 미세변동 억제)
+                    #         cr = self.dist_util.compute_mask_centroid(rmask)
+                    #         co = self.dist_util.compute_mask_centroid(target)
+                    #         if cr is None or co is None:
+                    #             continue
+                    #         d = self.dist_util.compute_object_distance_simple(cr, co, wrist_raw_depth)
+                    #         if d is None:
+                    #             continue
+                            
+                    #         # 0.5cm 단위로 반올림 → 미세 깜빡임 완화
+                    #         d = round(float(d), 2)   # 0.01m = 1cm; 깔끔하게 0.5cm 원하면 round(d, 3) 후 *100 등 사용
+
+                    #         # 히스토리 누적(rolling median)
+                    #         hist = self._dist_hist.setdefault(cid, deque(maxlen=7))
+                    #         hist.append(d)
+                    #         d_smooth = float(np.median(hist))
+
+                    #         dist_by_cid[cid] = d_smooth
+                    #         self._last_target_poly[cid] = np.asarray(target)
+                    
+                    # # 2) head overlay (colorize hands by min distance)
+                    # head_disp = current_image.copy()
+                    # if (self.dist_util is not None and
+                    #     head_preds is not None and head_preds.masks is not None and dist_by_cid):
+
+                    #     h_masks = head_preds.masks.xy
+                    #     h_cls = list(map(int, head_class_id))
+                    #     head_robot_masks = {cid: [] for cid in HAND_CLASSES}
+                    #     for m, c in zip(h_masks, h_cls):
+                    #         if c in HAND_CLASSES:
+                    #             head_robot_masks[c].append(m)
+
+                    #     for cid, dist_m in dist_by_cid.items():
+                    #         for hmask in head_robot_masks.get(cid, []):
+                    #             head_disp = self.dist_util.overlay_mask_with_color(head_disp, hmask, dist_m)
+
+                    head_disp  = current_image.copy()
+                    wrist_disp = wrist_image.copy()
+
+                    # YOLO 결과 → numpy로 변환
+                    boxes_xyxy, classes = None, None
+                    if wrist_preds is not None and hasattr(wrist_preds, "boxes") and wrist_preds.boxes is not None:
+                        boxes_xyxy = wrist_preds.boxes.xyxy.detach().cpu().numpy().astype(float)
+                        classes    = wrist_preds.boxes.cls.detach().cpu().numpy().astype(int)
+
+                    # ========== ① 손-물체 깊이 비교 ==========
+                    depth_out = {"left": {"verdict":"no_data"}, "right":{"verdict":"no_data"}}
+                    if (wrist_raw_depth is not None and wrist_raw_depth.ndim == 2 and
+                        boxes_xyxy is not None and len(boxes_xyxy) > 0):
+                        wrist_disp, depth_out = self.depth_assessor.process(
+                            image_bgr=wrist_disp,                 # wrist RGB 이미지
+                            depth_mm=wrist_raw_depth,             # wrist depth(mm, RGB와 align된 것)
+                            boxes_xyxy=boxes_xyxy,
+                            classes=classes
+                        )
+
+                    # ========== ② Head 손 마스크 그라데이션 오버레이 ==========
+                    if head_preds is not None and head_preds.masks is not None:
+                        head_masks_xy = head_preds.masks.xy
+                        head_classes  = list(map(int, head_class_id))
+
+                        # 근접 스케일은 환경에 맞게 조정 (예: 50~300mm)
+                        head_disp = self.depth_assessor.colorize_hands_on_head_grad(
+                            head_image_bgr=head_disp,
+                            head_masks_xy=head_masks_xy,
+                            head_classes=head_classes,
+                            left_info=depth_out.get("left", {}),
+                            right_info=depth_out.get("right", {}),
+                            min_mm=10.0,
+                            max_mm=100.0,
+                            alpha=0.30
+                        )
 
                     # 3) sound feedback
                     if wrist_preds is not None and wrist_preds.masks is not None and wrist_raw_depth is not None:
                         try:
                             w_masks = wrist_preds.masks.xy
-                            w_cls = list(map(int, wrist_class_id))
-                            obj_masks = [m for m, c in zip(w_masks, w_cls) if c not in HAND_CLASSES]
+                            w_cls   = list(map(int, wrist_class_id))
+
+                            # 손 제외한 모든 물체 → 동일 버킷
+                            w_cls_bucketed = [ (c if c in HAND_CLASSES else BUCKET_OBJECT) for c in w_cls ]
+                            object_masks_only = [m for (m, c) in zip(w_masks, w_cls_bucketed) if c == BUCKET_OBJECT]
+
                             if self._ods is None:
+                                # 너가 올려준 ODS 파라미터값에 맞춰 초기화 (더 안정적으로)
                                 self._ods = ObjectDepthSameSound(
                                     depth=wrist_raw_depth,
-                                    masks=obj_masks,
+                                    masks=object_masks_only,
                                     align_sound_path=self.align_sound_path,
-                                    k=2, tolerance_mm=10, cooldown_s=0.5, release_mm=15
+                                    k=4, tolerance_mm=40, cooldown_s=0.8, release_mm=40,
+                                    dwell_s=0.5, key_grid_px=60, stale_s=10.0, suppress_s = 100.0, outside_tol_clear_s = 1.2
                                 )
                             else:
                                 self._ods.depth = wrist_raw_depth
-                                self._ods.masks = obj_masks
+                                self._ods.masks = object_masks_only
+
                             _ = self._ods.sound_depth_same_between_objects()
                         except Exception as e:
                             print(f"[image_show][ODS] error: {e}")
@@ -450,13 +554,12 @@ class ImageClient:
                         wrist_disp = wrist_preds.plot()
                     else:
                         wrist_disp = wrist_image.copy()
-                    
+
                     # 5) show
                     hH, wH = head_disp.shape[:2]
                     hW, wW = wrist_disp.shape[:2]
                     cv2.imshow('Head (overlay)', cv2.resize(head_disp, (wH, hH)))
-                    cv2.imshow('Wrist (seg)', cv2.resize(wrist_disp, (wW, hW)))
-
+                    cv2.imshow('Wrist (seg)',    cv2.resize(wrist_disp, (wW, hW)))
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
                         
