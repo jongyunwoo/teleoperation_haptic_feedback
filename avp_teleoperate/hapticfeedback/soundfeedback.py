@@ -34,8 +34,8 @@ class ObjectDepthSameSound:
                  align_sound_path='/home/scilab/teleoperation/avp_teleoperate/hapticfeedback/sounddata/beep-125033.mp3',
                  k=4, tolerance_mm=60, cooldown_s=0.8, release_mm=60,
                  stop_overlap=False,
-                 dwell_s=0.5,        # ⬅️ 새로 추가: 이 시간 이상 연속 정렬되면 재생
-                 key_grid_px=60,       # ⬅️ 새로 추가: 센트로이드 격자 크기(픽셀)
+                 dwell_s=0.5,        
+                 key_grid_px=60,      
                  stale_s = 10.0,
                  suppress_s = 15.0,
                  outside_tol_clear_s = 1.2

@@ -122,26 +122,77 @@
 
 # print("[OK] counts:", dict(seen))
 # print("[WARN] unknown labels:", dict(unknown))
+# import os
 
-import os, glob, collections
+# label_dir = "/home/scilab/Documents/teleoperation/yolo/datasets/raw_total/labels/total"
 
-NAMES = ["orange block","green block","purple block","pegging black block","Hole box",
-         "small plastic cup","large plastic cup","left robot hand","right robot hand"]
+# for fname in os.listdir(label_dir):
+#     if not fname.endswith(".txt"):
+#         continue
+    
+#     fpath = os.path.join(label_dir, fname)
+#     with open(fpath, "r") as f:
+#         lines = f.readlines()
 
-def count_yolo_txt(label_dir):
-    cnt = collections.Counter()
-    for p in glob.glob(os.path.join(label_dir, "**/*.txt"), recursive=True):
-        with open(p,"r") as f:
-            for line in f:
-                line=line.strip()
-                if not line: continue
-                cid = int(line.split()[0])
-                cnt[cid]+=1
-    return cnt
+#     new_lines = []
+#     changed = False
+#     for line in lines:
+#         parts = line.strip().split()
+#         if not parts:
+#             continue
+#         # YOLO format: class x y w h ...
+#         if parts[0] == "8":
+#             parts[0] = "7"
+#             changed = True
+#         new_lines.append(" ".join(parts) + "\n")
 
-for split in ["train","val"]:
-    d = f"/home/scilab/Documents/teleoperation/yolo/datasets/dataset/labels/{split}"
-    c = count_yolo_txt(d)
-    print(f"\n[{split}] per-class instances:")
-    for cid in range(len(NAMES)):
-        print(f"{cid:2d} {NAMES[cid]:>20s} : {c.get(cid,0)}")
+#     if changed:
+#         with open(fpath, "w") as f:
+#             f.writelines(new_lines)
+#         print(f"Updated: {fname}")
+
+# print("변경 완료!")
+
+import os
+import shutil
+
+src_dir = "/home/scilab/Documents/teleoperation/yolo/datasets/raw_total/labels/total"
+train_dir = os.path.join(os.path.dirname(src_dir), "train")
+val_dir = os.path.join(os.path.dirname(src_dir), "val")
+
+# 폴더 생성
+os.makedirs(train_dir, exist_ok=True)
+os.makedirs(val_dir, exist_ok=True)
+
+# val 범위 목록
+val_ranges = [
+    range(81, 101),
+    range(181, 201),
+    range(281, 301),
+    range(381, 401),
+    range(681, 701),
+    range(781, 801)
+]
+
+def in_val_set(num):
+    return any(num in r for r in val_ranges)
+
+for fname in os.listdir(src_dir):
+    if not fname.endswith(".txt"):
+        continue
+    
+    # 파일 이름에서 숫자 추출
+    name_no_ext = os.path.splitext(fname)[0]
+    try:
+        num = int(name_no_ext)
+    except ValueError:
+        print(f"Skip: {fname} (숫자 아님)")
+        continue
+    
+    # 이동
+    if in_val_set(num):
+        shutil.copy2(os.path.join(src_dir, fname), os.path.join(val_dir, fname))
+    else:
+        shutil.copy2(os.path.join(src_dir, fname), os.path.join(train_dir, fname))
+
+print("train / val 분리 완료!")

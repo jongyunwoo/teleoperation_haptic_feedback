@@ -9,20 +9,20 @@ import os, sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from hapticfeedback.visfeedback import HandObjectDepthAssessor, LineOverlayMerger
 from hapticfeedback.soundfeedback import ObjectDepthSameSound
+from hapticfeedback.code.leftrightsplit import RobotHandSideResolver
 from collections import deque
+from typing import Iterable, Optional, Dict, Any, Tuple, List
 import supervision as sv
 
 # MAX_DEPTH_MM = 4000.0
+ROBOT_HAND_CID = 7                 # 단일 로봇손 클래스 (모델 출력)
+LEFT_ID, RIGHT_ID = 7, 8           # 파이프라인 호환용 합성 클래스
+HAND_CLASSES = (LEFT_ID, RIGHT_ID)
+BUCKET_OBJECT = 100
 max_len = 3
 buffer_size = 5
 min_classes = 1
 annotator = sv.MaskAnnotator()
-def _poly_iou(a, b, shape):
-    maskA = np.zeros(shape, np.uint8); cv2.fillPoly(maskA, [a.astype(np.int32)], 1)
-    maskB = np.zeros(shape, np.uint8); cv2.fillPoly(maskB, [b.astype(np.int32)], 1)
-    inter = np.logical_and(maskA, maskB).sum()
-    union = np.logical_or(maskA, maskB).sum()
-    return float(inter) / float(union + 1e-6)
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None,
@@ -59,6 +59,7 @@ class ImageClient:
                                      dist_thresh=50.0, angle_thresh_deg=15.0,
                                      depth_thresh_mm=60.0, morph_dilate=2, morph_close=3,
                                      extend_ratio=1.1, color=(0,255,0), thickness=2)        
+        self.side_resolver = RobotHandSideResolver(iou_track_thresh=0.3,mirror=False)  # 헤드/손목 카메라가 좌우 반전되면 True
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
         # self.tv_depth_img_shape = tv_depth_img_shape
@@ -95,13 +96,64 @@ class ImageClient:
             self._init_performance_metrics()
           
           
-    def _poly_iou(a, b, shape):
-        maskA = np.zeros(shape, np.uint8); cv2.fillPoly(maskA, [a.astype(np.int32)], 1)
-        maskB = np.zeros(shape, np.uint8); cv2.fillPoly(maskB, [b.astype(np.int32)], 1)
-        inter = np.logical_and(maskA, maskB).sum()
-        union = np.logical_or(maskA, maskB).sum()
-        return float(inter) / float(union + 1e-6)
-    
+        # ★ fallback 저장소
+        self._prev_head: Dict[str, Any] = {"masks_xy": None, "classes": None, "boxes_xyxy": None}
+        self._prev_wrist: Dict[str, Any] = {"masks_xy": None, "classes": None, "boxes_xyxy": None}
+
+    @staticmethod
+    def _good_enough(masks_xy, classes, min_classes_count: int):
+        """마스크가 존재하고, 클래스도 존재하며, 최소 분류 수 조건 통과"""
+        if masks_xy is None or classes is None:
+            return False
+        if len(masks_xy) == 0 or len(classes) == 0:
+            return False
+        return len(set(classes)) >= min_classes_count
+
+    @staticmethod
+    def _best_idx_by_iou(poly, polys, H, W):
+        """poly와 polys 간 IoU 최댓값 인덱스 반환"""
+        if poly is None or len(polys) == 0:
+            return None
+        base = np.zeros((H, W), np.uint8)
+        cv2.fillPoly(base, [poly.astype(np.int32)], 1)
+        best_i, best_iou = None, 0.0
+        for j, pj in enumerate(polys):
+            m = np.zeros((H, W), np.uint8)
+            cv2.fillPoly(m, [pj.astype(np.int32)], 1)
+            inter = np.logical_and(base, m).sum()
+            union = np.logical_or(base, m).sum() + 1e-6
+            iou = float(inter / union)
+            if iou > best_iou:
+                best_i, best_iou = j, iou
+        return best_i
+
+    def _assign_lr_classes(self, masks_xy, classes, img_w, img_h):
+        """
+        단일 로봇손 클래스(ROBOT_HAND_CID) 인스턴스들을 좌/우로 분할하여
+        classes_lr (합성 클래스: 7/8)와 좌/우 글로벌 인덱스를 반환.
+        """
+        if masks_xy is None or classes is None:
+            return classes, None, None
+
+        hand_idxs = [i for i, c in enumerate(classes) if c == ROBOT_HAND_CID]
+        if not hand_idxs:
+            return classes, None, None
+
+        hand_polys = [masks_xy[i] for i in hand_idxs]
+        lr = self.side_resolver.update(hand_polys, image_w=img_w, now_ts=time.time())
+        left_local = self._best_idx_by_iou(lr["left"], hand_polys, img_h, img_w) if lr["left"] is not None else None
+        right_local = self._best_idx_by_iou(lr["right"], hand_polys, img_h, img_w) if lr["right"] is not None else None
+
+        left_idx = hand_idxs[left_local] if left_local is not None else None
+        right_idx = hand_idxs[right_local] if right_local is not None else None
+
+        classes_lr = list(classes)
+        if left_idx is not None:
+            classes_lr[left_idx] = LEFT_ID
+        if right_idx is not None:
+            classes_lr[right_idx] = RIGHT_ID
+
+        return classes_lr, left_idx, right_idx
     #===================segmentation model load===================#
     def _lazy_load_model(self):
         if not self._need_load_model:
@@ -220,9 +272,9 @@ class ImageClient:
                 wrist_raw_depth = np.frombuffer(wrist_depth_bytes, dtype=np.uint16) if wrist_depth_bytes else None
                 current_image = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
                 wrist_image = cv2.imdecode(wrist_np_img, cv2.IMREAD_COLOR)
+                
                 if wrist_raw_depth.ndim == 1:
                     wrist_raw_depth = wrist_raw_depth.reshape(wrist_image.shape[0], wrist_image.shape[1])
-                
                 
                 if current_image is None:
                     print("[Image Client] Failed to decode Image.")
@@ -241,176 +293,131 @@ class ImageClient:
                    continue
                 
                 self._lazy_load_model()
+                head_disp  = current_image.copy()
+                wrist_disp = wrist_image.copy()
+
                 imgs = [current_image, wrist_image]  # 두 장 크기를 같게 맞추면 더 좋아요
                 results = self.model.predict(imgs, imgsz=640, device=0, half=True, verbose=False)[0:2]
                 head_preds, wrist_preds = results
-                if head_preds.masks is not None:
-                    self.tv_buffer.append([m.copy() for m in head_preds.masks.xy])
-                head_class_id = head_preds.boxes.cls.tolist()
-                if wrist_preds.masks is not None:
-                        self.wrist_buffer.append([m.copy() for m in wrist_preds.masks.xy])
-                wrist_class_id = wrist_preds.boxes.cls.tolist()  
-
-                if  self.tv_enable_shm:
-                    # self._lazy_load_model()
-                    # preds = self.model.predict(current_image,
-                    #                            confidence=0.5)   # Results object
-                    # if preds[0].masks is None:
-                    #     print("[Image Client] No masks found in predictions.")
-                    #     np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
-                    #     continue
-                    # tactile_sensor = self.dual_hand_touch_array
-                    # left_tactile_sensor = tactile_sensor[:1062]
-                    # right_tactile_sensor = tactile_sensor[-1062:]
-                    # current_image = overlay(current_image, left_tactile_sensor, right_tactile_sensor)
-                    np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
-                    
-                    if head_preds.masks is None or len(set(head_class_id)) < min_classes:
-                        print("[Image Client] No masks found in predictions.")
-                        if self.tv_buffer:
-                            fb_mask = self.tv_buffer[-1] 
-                            np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
-                        else:
-                            np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])
-                    
-                    else:
-                        self.tv_buffer.append(head_preds.masks)
-
-                        np.copyto(self.tv_img_array, current_image[:, :self.tv_img_shape[1]])                    
-
-                if self.wrist_enable_shm:
-                    self._lazy_load_model()
-                    preds_wrist = self.model.predict(wrist_image)[0]
-                    if self.wrist_buffer:
-                        wrist_fb_mask = self.wrist_buffer[-1]
-                        np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
-                    else:
-                        np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
-                else:
-                    np.copyto(self.wrist_img_array, np.array(wrist_image[:, :self.wrist_img_shape[1]]))
-                    
-                                
-                                
-                # if self.tv_depth_enable_shm:
-                #     raw_depth = raw_depth.reshape(self.tv_depth_img_shape[0], self.tv_depth_img_shape[1])
-                #     np.copyto(self.tv_depth_img_array, raw_depth)
                 
-                if self.wrist_depth_enable_shm:
-                    wrist_raw_depth = wrist_raw_depth.reshape(self.wrist_depth_img_shape[0], self.wrist_depth_img_shape[1])
-#            
-                if self._image_show:
-                    # height, width = current_image.shape[:2]
-                    # wrist_height, wrist_width = wrist_image.shape[:2]
-                    # resized_image = cv2.resize(current_image, (width, height))
-                    # wrist_resized_image = cv2.resize(wrist_image, (wrist_width, wrist_height))
-                    # cv2.imshow('Head Camera', head_preds.plot())
-                    # cv2.imshow('Wrist Camera', wrist_preds.plot())
-                    # if cv2.waitKey(1) & 0xFF == ord('q'):
-                    #     self.running = False
-                    HAND_CLASSES = (7, 8)
-                    BUCKET_OBJECT = 100
-                    head_disp  = current_image.copy()
-                    wrist_disp = wrist_image.copy()
+                 # 안전 추출
+                head_masks_xy_now, head_classes_now, head_boxes_xyxy_now   = self._safe_extract(head_preds)
+                wrist_masks_xy_now, wrist_classes_now, wrist_boxes_xyxy_now = self._safe_extract(wrist_preds)
 
-                    # YOLO 결과 → numpy로 변환
-                    boxes_xyxy, classes = None, None
-                    if wrist_preds is not None and hasattr(wrist_preds, "boxes") and wrist_preds.boxes is not None:
-                        boxes_xyxy = wrist_preds.boxes.xyxy.detach().cpu().numpy().astype(float)
-                        classes    = wrist_preds.boxes.cls.detach().cpu().numpy().astype(int)
+                # fallback 결정
+                if self._good_enough(head_masks_xy_now, head_classes_now, min_classes):
+                    head_masks_xy, head_classes, head_boxes_xyxy = head_masks_xy_now, head_classes_now, head_boxes_xyxy_now
+                    self._prev_head = {"masks_xy": head_masks_xy, "classes": head_classes, "boxes_xyxy": head_boxes_xyxy}
+                else:
+                    head_masks_xy, head_classes, head_boxes_xyxy = self._prev_head["masks_xy"], self._prev_head["classes"], self._prev_head["boxes_xyxy"]
 
-                    # ========== ① 손-물체 깊이 비교 ==========
-                    depth_out = {"left": {"verdict":"no_data"}, "right":{"verdict":"no_data"}}
-                    if (wrist_raw_depth is not None and wrist_raw_depth.ndim == 2 and
-                        boxes_xyxy is not None and len(boxes_xyxy) > 0):
-                        wrist_disp, depth_out = self.depth_assessor.process(
-                            image_bgr=wrist_disp,                 # wrist RGB 이미지
-                            depth_mm=wrist_raw_depth,             # wrist depth(mm, RGB와 align된 것)
-                            boxes_xyxy=boxes_xyxy,
-                            classes=classes
-                        )
+                if self._good_enough(wrist_masks_xy_now, wrist_classes_now, min_classes):
+                    wrist_masks_xy, wrist_classes, wrist_boxes_xyxy = wrist_masks_xy_now, wrist_classes_now, wrist_boxes_xyxy_now
+                    self._prev_wrist = {"masks_xy": wrist_masks_xy, "classes": wrist_classes, "boxes_xyxy": wrist_boxes_xyxy}
+                else:
+                    wrist_masks_xy, wrist_classes, wrist_boxes_xyxy = self._prev_wrist["masks_xy"], self._prev_wrist["classes"], self._prev_wrist["boxes_xyxy"]
+                
+                # ===== 좌/우 합성 클래스 만들기 (wrist) =====
+                Wh, Ww = wrist_image.shape[0], wrist_image.shape[1]
+                wrist_classes_lr, wrist_left_idx, wrist_right_idx = self._assign_lr_classes(
+                    wrist_masks_xy, wrist_classes, img_w=Ww, img_h=Wh
+                )
 
-                    # ========== ② Head 손 마스크 그라데이션 오버레이 ==========
-                    if head_preds is not None and head_preds.masks is not None:
-                        head_masks_xy = head_preds.masks.xy
-                        head_classes  = list(map(int, head_class_id))
+                # ===== 좌/우 합성 클래스 만들기 (head) =====
+                Hh, Hw = head_image_h, head_image_w = head_disp.shape[0], head_disp.shape[1]
+                head_classes_lr, head_left_idx, head_right_idx = self._assign_lr_classes(
+                    head_masks_xy, head_classes, img_w=Hw, img_h=Hh
+                )
 
-                        # 근접 스케일은 환경에 맞게 조정 (예: 50~300mm)
-                        head_disp = self.depth_assessor.colorize_hands_on_head_grad(
-                            head_image_bgr=head_disp,
-                            head_masks_xy=head_masks_xy,
-                            head_classes=head_classes,
-                            left_info=depth_out.get("left", {}),
-                            right_info=depth_out.get("right", {}),
-                            min_mm=10.0,
-                            max_mm=100.0,
-                            alpha=0.30
-                                            )
-                    if not hasattr(self, "line_merger") or self.line_merger is None:
-                            self.line_merger = LineOverlayMerger(
-                                exclude_class_ids=(7, 8),   # 로봇 손 제외
-                                iou_thresh=0.25,
-                                dist_thresh=50.0,
-                                angle_thresh_deg=15.0,
-                                depth_thresh_mm=60.0,
-                                morph_dilate=2,
-                                morph_close=3,
-                                extend_ratio=1.1,
-                                color=(0, 255, 0),
-                                thickness=2
-                            )
+                # ① 손-물체 깊이 비교 (wrist)
+                depth_out = {"left": {"verdict": "no_data"}, "right": {"verdict": "no_data"}}
+                if (wrist_raw_depth is not None and wrist_raw_depth.ndim == 2 and
+                        wrist_boxes_xyxy is not None and len(wrist_boxes_xyxy) > 0 and
+                        wrist_classes_lr is not None):
+                    wrist_disp, depth_out = self.depth_assessor.process(
+                        image_bgr=wrist_disp,
+                        depth_mm=wrist_raw_depth,
+                        boxes_xyxy=wrist_boxes_xyxy,
+                        classes=np.array(wrist_classes_lr, dtype=int)
+                    )
 
-                    head_depth_mm = None  # 헤드 depth 정렬 데이터 있으면 여기에 할당
+                # ② Head 손 마스크 그라데이션 오버레이 (합성 클래스 사용)
+                if head_masks_xy is not None and head_classes_lr is not None:
+                    head_disp = self.depth_assessor.colorize_hands_on_head_grad(
+                        head_image_bgr=head_disp,
+                        head_masks_xy=head_masks_xy,
+                        head_classes=list(map(int, head_classes_lr)),
+                        left_info=depth_out.get("left", {}),
+                        right_info=depth_out.get("right", {}),
+                        min_mm=10.0, max_mm=100.0, alpha=0.30
+                    )
+
+                # ③ Head 선 하나(객체당) 오버레이
+                if head_masks_xy is not None and head_classes_lr is not None:
                     try:
+                        # LineOverlayMerger는 exclude=(7,8)라 손에는 선이 그려지지 않음
+                        class _MockMasks:
+                            def __init__(self, xy): self.xy = xy
                         head_disp = self.line_merger.draw_single_line_per_object(
                             image=head_disp,
-                            masks=head_preds.masks,
-                            classes=head_classes,
-                            depth_mm=head_depth_mm
+                            masks=_MockMasks(head_masks_xy),
+                            classes=list(map(int, head_classes_lr)),
+                            depth_mm=None
                         )
                     except Exception as e:
-                            print(f"[image_show][head line-merge] error: {e}")
+                        print(f"[image_show][head line-merge] error: {e}")
 
-                    # 3) sound feedback
-                    if wrist_preds is not None and wrist_preds.masks is not None and wrist_raw_depth is not None:
-                        try:
-                            w_masks = wrist_preds.masks.xy
-                            w_cls   = list(map(int, wrist_class_id))
+                # ④ 사운드 피드백(손 제외하고 물체끼리 버킷팅 → 동일깊이 음성)
+                if wrist_masks_xy is not None and wrist_classes is not None and wrist_raw_depth is not None:
+                    try:
+                        w_masks = wrist_masks_xy
+                        w_cls = list(map(int, wrist_classes))  # 원본 클래스 기준
+                        w_cls_bucketed = [(c if c in HAND_CLASSES else BUCKET_OBJECT) for c in w_cls]
+                        object_masks_only = [m for (m, c) in zip(w_masks, w_cls_bucketed) if c == BUCKET_OBJECT]
 
-                            # 손 제외한 모든 물체 → 동일 버킷
-                            w_cls_bucketed = [ (c if c in HAND_CLASSES else BUCKET_OBJECT) for c in w_cls ]
-                            object_masks_only = [m for (m, c) in zip(w_masks, w_cls_bucketed) if c == BUCKET_OBJECT]
+                        if self._ods is None:
+                            self._ods = ObjectDepthSameSound(
+                                depth=wrist_raw_depth,
+                                masks=object_masks_only,
+                                align_sound_path=self.align_sound_path,
+                                k=4, tolerance_mm=40, cooldown_s=0.8, release_mm=40,
+                                dwell_s=0.5, key_grid_px=60, stale_s=10.0,
+                                suppress_s=100.0, outside_tol_clear_s=1.2
+                            )
+                        else:
+                            self._ods.depth = wrist_raw_depth
+                            self._ods.masks = object_masks_only
 
-                            if self._ods is None:
-                                # 너가 올려준 ODS 파라미터값에 맞춰 초기화 (더 안정적으로)
-                                self._ods = ObjectDepthSameSound(
-                                    depth=wrist_raw_depth,
-                                    masks=object_masks_only,
-                                    align_sound_path=self.align_sound_path,
-                                    k=4, tolerance_mm=40, cooldown_s=0.8, release_mm=40,
-                                    dwell_s=0.5, key_grid_px=60, stale_s=10.0, suppress_s = 100.0, outside_tol_clear_s = 1.2
-                                )
-                            else:
-                                self._ods.depth = wrist_raw_depth
-                                self._ods.masks = object_masks_only
-
-                            _ = self._ods.sound_depth_same_between_objects()
-                        except Exception as e:
-                            print(f"[image_show][ODS] error: {e}")
-
-                    # 4) wrist display (seg plot if masks exist)
-                    if wrist_preds is not None and wrist_preds.masks is not None:
-                        wrist_disp = wrist_preds.plot()
+                        _ = self._ods.sound_depth_same_between_objects()
+                    except Exception as e:
+                        print(f"[image_show][ODS] error: {e}")
+                
+                if self.tv_enable_shm:
+                    # 크기 맞춰 복사
+                    H, W = self.tv_img_shape[0], self.tv_img_shape[1]
+                    if (head_disp.shape[0], head_disp.shape[1]) != (H, W):
+                        head_to_copy = cv2.resize(head_disp, (W, H))
                     else:
-                        wrist_disp = wrist_image.copy()
+                        head_to_copy = head_disp
+                    np.copyto(self.tv_img_array, head_to_copy[:, :W])
 
-                    # 5) show
-                    hH, wH = head_disp.shape[:2]
-                    hW, wW = wrist_disp.shape[:2]
-                    cv2.imshow('Head (overlay)', cv2.resize(head_disp, (wH, hH)))
-                    cv2.imshow('Wrist (seg)',    cv2.resize(wrist_disp, (wW, hW)))
+                if self.wrist_enable_shm:
+                    Hw, Ww = self.wrist_img_shape[0], self.wrist_img_shape[1]
+                    wrist_to_copy = wrist_disp
+                    if (wrist_disp.shape[0], wrist_disp.shape[1]) != (Hw, Ww):
+                        wrist_to_copy = cv2.resize(wrist_disp, (Ww, Hw))
+                    np.copyto(self.wrist_img_array, wrist_to_copy[:, :Ww])
+
+                if self.wrist_depth_enable_shm:
+                    wrist_raw_depth = wrist_raw_depth.reshape(self.wrist_depth_img_shape[0], self.wrist_depth_img_shape[1])
+                    np.copyto(self.wrist_depth_img_array, wrist_raw_depth)
+
+                # Local show
+                if self._image_show:
+                    cv2.imshow('Head (overlay)', head_disp)
+                    cv2.imshow('Wrist (seg)', wrist_disp)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
-                        
 
                 if self._enable_performance_eval:
                     self._update_performance_metrics(timestamp, frame_id, receive_time)
