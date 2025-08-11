@@ -64,7 +64,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     print(f"args:{args}\n")
-    dual_hand_touch_array = Array('d', num_tactile_per_hand * 2, lock=False)
 
     # image client: img_config should be the same as the configuration in image_server.py (of Robot's development computing unit)
     img_config = {
@@ -105,8 +104,7 @@ if __name__ == '__main__':
         wrist_depth_img_array = np.ndarray(wrist_depth_img_shape, dtype= np.uint16, buffer= wrist_depth_img_shm.buf)
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name, 
                                  wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name,
-                                 wrist_depth_img_shape = wrist_depth_img_shape, wrist_depth_img_shm_name=wrist_depth_img_shm.name,
-                                 dual_hand_touch_array=dual_hand_touch_array)
+                                 wrist_depth_img_shape = wrist_depth_img_shape, wrist_depth_img_shm_name=wrist_depth_img_shm.name)
                                  
     else:
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,

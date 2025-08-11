@@ -7,7 +7,7 @@ from typing import Optional, Tuple, Dict, Any, List, Iterable
 class LineOverlayMerger:
 
     def __init__(self,
-                 exclude_class_ids: Iterable[int] = (7, 8),
+                 exclude_class_ids: Iterable[int] = (7,8),
                  iou_thresh: float = 0.25,
                  dist_thresh: float = 50.0,
                  angle_thresh_deg: float = 15.0,
@@ -394,62 +394,116 @@ class HandObjectDepthAssessor:
         near_norm = 1.0 - far_norm
         return float(near_norm)
 
-    def colorize_hands_on_head_grad(self,
-                                    head_image_bgr: np.ndarray,
-                                    head_masks_xy: List[np.ndarray],
-                                    head_classes: List[int],
-                                    left_info: Dict[str, Any],
-                                    right_info: Dict[str, Any],
-                                    min_mm: float = 50.0,
-                                    max_mm: float = 300.0,
-                                    alpha: float = 0.55) -> np.ndarray:
-        """
-        left_info/right_info: process()의 out['left'], out['right'] 그대로 사용.
-        min_mm/max_mm: '같다'로 보는 근접 기준/스케일.
-        """
+    def colorize_hands_on_head_grad(
+        self,
+        head_image_bgr: np.ndarray,
+        head_masks_xy: List[np.ndarray],
+        head_classes: List[int],
+        left_info: Dict[str, Any],
+        right_info: Dict[str, Any],
+        min_mm: float = 50.0,
+        max_mm: float = 300.0,
+        alpha: float = 0.55
+    ) -> np.ndarray:
         LEFT_ID, RIGHT_ID = self.HAND_CLASSES
-        left_masks  = [m for m, c in zip(head_masks_xy, head_classes) if c == LEFT_ID]
-        right_masks = [m for m, c in zip(head_masks_xy, head_classes) if c == RIGHT_ID]
+        left_masks  = [m for m, c in zip(head_masks_xy or [], head_classes or []) if c == LEFT_ID]
+        right_masks = [m for m, c in zip(head_masks_xy or [], head_classes or []) if c == RIGHT_ID]
 
-        l_near = self._near_norm_from_pair(left_info.get("A_mm"),  left_info.get("B_mm"),  min_mm, max_mm)
-        r_near = self._near_norm_from_pair(right_info.get("A_mm"), right_info.get("B_mm"), min_mm, max_mm)
+        # 1) wrist에서 넘어온 A/B(mm)로 near_norm 계산
+        def safe_get(info: Optional[Dict[str, Any]], k: str):
+            return None if info is None else info.get(k)
 
+        l_near_raw = self._near_norm_from_pair(safe_get(left_info, "A_mm"),  safe_get(left_info, "B_mm"),  min_mm, max_mm)
+        r_near_raw = self._near_norm_from_pair(safe_get(right_info, "A_mm"), safe_get(right_info, "B_mm"), min_mm, max_mm)
+
+        # 2) no_object/unknown/None 이면 멀다(0.0)로 강제
+        def _norm_or_fallback(info: Optional[Dict[str, Any]], near_val: Optional[float]) -> float:
+            verdict = (info or {}).get("verdict")
+            if verdict in ("no_object", "no_data", "unknown") or near_val is None:
+                return 0.0  # 원하면 0.2~0.3으로 완충 가능
+            return float(near_val)
+
+        l_near = _norm_or_fallback(left_info,  l_near_raw)
+        r_near = _norm_or_fallback(right_info, r_near_raw)
+
+        # 3) EMA로 부드럽게
         l_sm = self._ema_norm("left",  l_near)
         r_sm = self._ema_norm("right", r_near)
 
+        # 4) 색상 결정
         l_color = self._grad_color_far_to_near(l_sm)
         r_color = self._grad_color_far_to_near(r_sm)
 
+        # 5) 오버레이
         out = head_image_bgr.copy()
         out = self.overlay_polys(out, left_masks,  l_color, alpha=alpha)
         out = self.overlay_polys(out, right_masks, r_color, alpha=alpha)
+
+        # (옵션) dtype 안정화
+        if out.dtype != np.uint8:
+            out = np.clip(out, 0, 255).astype(np.uint8)
+
         return out
-
     # ---------- 손별(왼/오) 최근접 물체 찾기 ----------
-
     def _nearest_object_to_box(self,
-                               depth_mm: np.ndarray,
-                               boxes_xyxy: np.ndarray,
-                               classes: np.ndarray,
-                               target_idx: int) -> Tuple[Optional[int], Optional[float], Optional[float]]:
+                           depth_mm: np.ndarray,
+                           boxes_xyxy: np.ndarray,
+                           classes: np.ndarray,
+                           target_idx: int,
+                           max_xy_dist_px: float = 250.0,   # 손-물체 화면거리 허용 한계
+                           max_depth_gap_mm: float = 200.0  # 손-물체 깊이차 허용 한계
+                           ) -> Tuple[Optional[int], Optional[float], Optional[float]]:
+        """
+        손(target_idx) 기준으로 '화면 2D 중심 거리(픽셀)'가 가장 가까운 물체를 찾는다.
+        단, 너무 멀리 떨어진 후보는 제외하기 위해 깊이 차이 한계도 적용.
+        반환: (nearest_idx, hand_mm, obj_mm)
+        """
+        # ---- 방어: target_idx 범위 체크 ----
+        if target_idx < 0 or target_idx >= len(boxes_xyxy):
+            return None, None, None
+
+        # ---- 손 중심 좌표 구하기 ----
         h_center = self.box_center_xyxy(boxes_xyxy[target_idx])
+        if not h_center or len(h_center) != 2:
+            return None, None, None
+
+        # ---- 손 깊이 ----
         h_mm = self.robust_depth_at(depth_mm, h_center)
 
-        nearest_idx, nearest_mm = None, None
+        nearest_idx, nearest_xy = None, None
+        nearest_mm = None
+
         for i, cls in enumerate(classes):
             if i == target_idx:
                 continue
-            if cls in self.HAND_CLASSES:  # 다른 손 제외
+            if cls in self.HAND_CLASSES:  # 다른 손은 제외
                 continue
+
+            # ---- 물체 중심 좌표 구하기 ----
             o_center = self.box_center_xyxy(boxes_xyxy[i])
+            if not o_center or len(o_center) != 2:
+                continue
+
+            # ---- 2D(화면) 중심 거리 ----
+            xy_dist = float(np.hypot(o_center[0] - h_center[0], o_center[1] - h_center[1]))
+            if xy_dist > max_xy_dist_px:
+                continue
+
+            # ---- 물체 깊이 ----
             o_mm = self.robust_depth_at(depth_mm, o_center)
             if o_mm is None:
                 continue
-            if nearest_mm is None or o_mm < nearest_mm:
-                nearest_idx, nearest_mm = i, o_mm
+
+            # ---- 깊이 차이가 너무 크면 제외 ----
+            if h_mm is not None and abs(o_mm - h_mm) > max_depth_gap_mm:
+                continue
+
+            # ---- 가장 가까운 물체 갱신 ----
+            if (nearest_idx is None) or (xy_dist < nearest_xy):
+                nearest_idx, nearest_xy, nearest_mm = i, xy_dist, o_mm
 
         return nearest_idx, h_mm, nearest_mm
-
+    
     def _compare_hand_side(self,
                            side_label: str,
                            depth_mm: np.ndarray,

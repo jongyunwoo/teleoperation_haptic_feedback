@@ -7,7 +7,7 @@ from pydub import AudioSegment
 from pydub.playback import play
 
 # 손 클래스 (필요하면 밖에서 재사용)
-HAND_CLASSES = {7, 8}
+HAND_CLASSES = {7}
 
 class StereoSoundFeedbackManager:
     def __init__(self, grip_sound_path):
@@ -31,7 +31,7 @@ class StereoSoundFeedbackManager:
 
 class ObjectDepthSameSound:
     def __init__(self, depth, masks,
-                 align_sound_path='/home/scilab/teleoperation/avp_teleoperate/hapticfeedback/sounddata/beep-125033.mp3',
+                 align_sound_path='/home/scilab/teleoperation/avp_teleoperate/hapticfeedback/sounddata/bell-notification-337658.mp3',
                  k=4, tolerance_mm=60, cooldown_s=0.8, release_mm=60,
                  stop_overlap=False,
                  dwell_s=0.5,        

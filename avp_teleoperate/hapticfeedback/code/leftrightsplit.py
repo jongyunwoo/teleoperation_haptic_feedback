@@ -99,7 +99,13 @@ class RobotHandSideResolver:
                     assign[i] = "right"
                 else:
                     # 둘 다 이미 배정됐다면 더 가까운 쪽 기준으로(드문 케이스)
-                    assign[i] = "left" if self._cx(polys[i]) < (image_w * 0.5) ^ self.mirror else "right"
+                    # assign[i] = "left" if self._cx(polys[i]) < (image_w * 0.5) ^ self.mirror else "right"
+                    mid = float(image_w) * 0.5
+                    is_left = self._cx(polys[i]) < mid
+                    if self.mirror:
+                        is_left = not is_left
+                    assign[i] = "left" if is_left else "right"
+
             else:
                 # 두 개 이상이면 좌/우 순서대로 채우기
                 if "left" not in assign.values():

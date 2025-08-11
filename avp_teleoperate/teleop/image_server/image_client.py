@@ -26,7 +26,7 @@ annotator = sv.MaskAnnotator()
 
 class ImageClient:
     def __init__(self, tv_img_shape = None, tv_img_shm_name = None,
-                 wrist_img_shape = None, wrist_img_shm_name = None, wrist_depth_img_shape = None, wrist_depth_img_shm_name = None, dual_hand_touch_array = None,
+                 wrist_img_shape = None, wrist_img_shm_name = None, wrist_depth_img_shape = None, wrist_depth_img_shm_name = None,
                 image_show = False, server_address = "192.168.123.164", port = 5555, Unit_Test = False):
         """
         tv_img_shape: User's expected head camera resolution shape (H, W, C). It should match the output of the image service terminal.
@@ -59,7 +59,7 @@ class ImageClient:
                                      dist_thresh=50.0, angle_thresh_deg=15.0,
                                      depth_thresh_mm=60.0, morph_dilate=2, morph_close=3,
                                      extend_ratio=1.1, color=(0,255,0), thickness=2)        
-        self.side_resolver = RobotHandSideResolver(iou_track_thresh=0.3,mirror=False)  # 헤드/손목 카메라가 좌우 반전되면 True
+        self.side_resolver = RobotHandSideResolver(iou_track_thresh=0.5,mirror=False)  # 헤드/손목 카메라가 좌우 반전되면 True
         self.tv_img_shape = tv_img_shape
         self.wrist_img_shape = wrist_img_shape
         # self.tv_depth_img_shape = tv_depth_img_shape
@@ -99,6 +99,37 @@ class ImageClient:
         # ★ fallback 저장소
         self._prev_head: Dict[str, Any] = {"masks_xy": None, "classes": None, "boxes_xyxy": None}
         self._prev_wrist: Dict[str, Any] = {"masks_xy": None, "classes": None, "boxes_xyxy": None}
+    def _safe_extract(self, preds):
+        masks_xy = None
+        classes = None
+        boxes_xyxy = None
+        try:
+            # Boxes
+            if getattr(preds, "boxes", None) is not None and preds.boxes is not None:
+                # .cpu() 필요할 수 있음 (CUDA 텐서 대비)
+                boxes_xyxy = preds.boxes.xyxy
+                if hasattr(boxes_xyxy, "cpu"):
+                    boxes_xyxy = boxes_xyxy.cpu().numpy()
+                else:
+                    boxes_xyxy = np.asarray(boxes_xyxy)
+                if getattr(preds.boxes, "cls", None) is not None:
+                    classes = preds.boxes.cls
+                    if hasattr(classes, "cpu"):
+                        classes = classes.cpu().numpy().astype(int).tolist()
+                    else:
+                        classes = list(map(int, np.asarray(classes).tolist()))
+
+            # Masks (polygon)
+            if getattr(preds, "masks", None) is not None and preds.masks is not None:
+                # preds.masks.xy: list of [N_i x 2] float arrays (CPU)
+                xy = getattr(preds.masks, "xy", None)
+                if xy is not None:
+                    masks_xy = [np.asarray(p, dtype=np.float32) for p in xy]
+        except Exception as e:
+            print(f"[_safe_extract] error: {e}")
+
+        return masks_xy, classes, boxes_xyxy
+
 
     @staticmethod
     def _good_enough(masks_xy, classes, min_classes_count: int):
@@ -160,7 +191,7 @@ class ImageClient:
             return
         print("[ImageClient] Loading YOLO11 segmentation model …")
         from ultralytics import YOLO
-        self.model = YOLO("/home/scilab/teleoperation/plastic_cup.pt")
+        self.model = YOLO("/home/scilab/teleoperation/best.pt")
         self._need_load_model = False
         print("[ImageClient] YOLO11n-seg ready (cuda)")
 
@@ -241,8 +272,7 @@ class ImageClient:
         self._socket = self._context.socket(zmq.SUB)
         self._socket.connect(f"tcp://{self._server_address}:{self._port}")
         self._socket.setsockopt_string(zmq.SUBSCRIBE, "")
-        cv2.namedWindow('Image Client Stream', cv2.WINDOW_NORMAL)
-        cv2.resizeWindow('Image Client Stream', 960, 720)
+        self._socket.RCVTIMEO = 1000  # 1초
 
         print("\nImage client has started, waiting to receive data...")
         try:
@@ -296,8 +326,8 @@ class ImageClient:
                 head_disp  = current_image.copy()
                 wrist_disp = wrist_image.copy()
 
-                imgs = [current_image, wrist_image]  # 두 장 크기를 같게 맞추면 더 좋아요
-                results = self.model.predict(imgs, imgsz=640, device=0, half=True, verbose=False)[0:2]
+                imgs = [current_image, wrist_image]
+                results = self.model.predict(imgs, imgsz=480, device=0, half=True, verbose=False)[0:2]
                 head_preds, wrist_preds = results
                 
                  # 안전 추출
@@ -380,8 +410,8 @@ class ImageClient:
                                 depth=wrist_raw_depth,
                                 masks=object_masks_only,
                                 align_sound_path=self.align_sound_path,
-                                k=4, tolerance_mm=40, cooldown_s=0.8, release_mm=40,
-                                dwell_s=0.5, key_grid_px=60, stale_s=10.0,
+                                k=4, tolerance_mm=20, cooldown_s=0.8, release_mm=40,
+                                dwell_s=0.5, key_grid_px=120, stale_s=10.0,
                                 suppress_s=100.0, outside_tol_clear_s=1.2
                             )
                         else:
@@ -391,7 +421,13 @@ class ImageClient:
                         _ = self._ods.sound_depth_same_between_objects()
                     except Exception as e:
                         print(f"[image_show][ODS] error: {e}")
-                
+                label_annot = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
+                detections = sv.Detections.from_ultralytics(wrist_preds)
+                wrist_disp = annotator.annotate(wrist_disp, detections)
+                wrist_disp = label_annot.annotate(
+                    wrist_disp, detections,
+                    labels=[f"{int(c)}:{conf:.2f}" for c, conf in zip(detections.class_id, detections.confidence)]
+                )
                 if self.tv_enable_shm:
                     # 크기 맞춰 복사
                     H, W = self.tv_img_shape[0], self.tv_img_shape[1]
@@ -414,11 +450,14 @@ class ImageClient:
 
                 # Local show
                 if self._image_show:
+                    print("imshow shape:", head_disp.shape, head_disp.dtype)
+
                     cv2.imshow('Head (overlay)', head_disp)
-                    cv2.imshow('Wrist (seg)', wrist_disp)
+                    print(2)
+                    # cv2.imshow('Wrist (seg)', wrist_disp)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.running = False
-
+                    print("success")
                 if self._enable_performance_eval:
                     self._update_performance_metrics(timestamp, frame_id, receive_time)
                     self._print_performance_metrics(receive_time)
